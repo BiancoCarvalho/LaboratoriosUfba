@@ -8,14 +8,14 @@ echo "========================================="
 echo "  Baixando scripts do repositório..."
 echo "========================================="
 
-wget https://raw.githubusercontent.com/graco-ufba/lab-scripts/main/lab-profile-config.sh -O /tmp/lab-profile-config.sh
-wget https://raw.githubusercontent.com/graco-ufba/lab-scripts/main/lab-aluno-config.sh -O /tmp/lab-aluno-config.sh
-wget https://raw.githubusercontent.com/graco-ufba/lab-scripts/main/lab-programs.sh -O /tmp/lab-programs.sh
-wget https://raw.githubusercontent.com/graco-ufba/lab-scripts/main/lab-eula-programs.sh -O /tmp/lab-eula-programs.sh
-wget https://raw.githubusercontent.com/graco-ufba/lab-scripts/main/lab-program-config.sh -O /tmp/lab-program-config.sh
-wget https://raw.githubusercontent.com/graco-ufba/lab-scripts/main/lab-inventory.sh -O /tmp/lab-inventory.sh
-wget https://raw.githubusercontent.com/graco-ufba/lab-scripts/main/lab-admin-profile-config.sh -O /tmp/lab-admin-profile-config.sh
-wget https://raw.githubusercontent.com/graco-ufba/lab-scripts/main/labsecurity-agent.sh -O /tmp/labsecurity-agent.sh
+wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-profile-config.sh -O /tmp/lab-profile-config.sh
+wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-aluno-config.sh -O /tmp/lab-aluno-config.sh
+wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-programs.sh -O /tmp/lab-programs.sh
+wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-eula-programs.sh -O /tmp/lab-eula-programs.sh
+wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-program-config.sh -O /tmp/lab-program-config.sh
+wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-inventory.sh -O /tmp/lab-inventory.sh
+wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-admin-profile-config.sh -O /tmp/lab-admin-profile-config.sh
+wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/labsecurity-agent.sh -O /tmp/labsecurity-agent.sh
 
 echo "✅ Download concluído!"
 echo ""
