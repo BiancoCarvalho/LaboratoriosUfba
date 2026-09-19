@@ -1,8 +1,8 @@
 #!/bin/bash
 # Lab Prova Config
 # v2.0.0
-# Aplica policies.json SOMENTE no perfil do usuário 'prova'
-# Não mexe em /etc/firefox/policies/ (que afeta todos os usuários)
+# Aplica policies.json e user.js SOMENTE no perfil do usuário 'prova'
+# NÃO mexe em /etc/firefox/policies/ (que afeta TODOS os usuários)
 
 set -e
 
@@ -11,39 +11,47 @@ LOG="/var/log/lab.log"
 
 echo "[$(date '+%F %T')] host=$(hostname) PROVA-CONFIG" >> "$LOG"
 
-# 1) Garante que o usuário existe
+# 1) Usuário precisa existir
 if ! id "$USUARIO" &>/dev/null; then
     echo "[$(date '+%F %T')] ERRO: usuário $USUARIO não existe" >> "$LOG"
     exit 1
 fi
 
-# 2) Remove qualquer policies GLOBAL (que afetaria todos)
+# 2) Remove policies GLOBAIS (que afetariam todos os usuários)
 rm -f /etc/firefox/policies/policies.json 2>/dev/null || true
 rm -f /var/snap/firefox/common/policies/policies.json 2>/dev/null || true
 
 # 3) Descobre o perfil do Firefox do 'prova'
-#    Se não existir ainda, abre uma vez rapidamente pra criar
 PERFIL=$(ls -d /home/$USUARIO/.mozilla/firefox/*.default-release 2>/dev/null | head -n1)
 
 if [ -z "$PERFIL" ]; then
+    PERFIL=$(ls -d /home/$USUARIO/snap/firefox/common/.mozilla/firefox/*.default-release 2>/dev/null | head -n1)
+fi
+
+# 4) Se não existe perfil, cria abrindo o Firefox uma vez
+if [ -z "$PERFIL" ]; then
     echo "[$(date '+%F %T')] Criando perfil do Firefox para $USUARIO" >> "$LOG"
 
-    # Abre o Firefox em modo headless rapidamente pra criar o perfil
     sudo -u "$USUARIO" DISPLAY=:0 firefox --headless --screenshot /tmp/x.png about:blank 2>/dev/null || true
-    sleep 3
+    sleep 5
     pkill -KILL -f "firefox.*headless" 2>/dev/null || true
+    pkill -KILL -u "$USUARIO" 2>/dev/null || true
+    sleep 1
 
     PERFIL=$(ls -d /home/$USUARIO/.mozilla/firefox/*.default-release 2>/dev/null | head -n1)
+    if [ -z "$PERFIL" ]; then
+        PERFIL=$(ls -d /home/$USUARIO/snap/firefox/common/.mozilla/firefox/*.default-release 2>/dev/null | head -n1)
+    fi
 fi
 
 if [ -z "$PERFIL" ]; then
-    echo "[$(date '+%F %T')] ERRO: não foi possível criar perfil do Firefox" >> "$LOG"
+    echo "[$(date '+%F %T')] ERRO: não foi possível criar perfil" >> "$LOG"
     exit 1
 fi
 
 echo "[$(date '+%F %T')] Perfil encontrado: $PERFIL" >> "$LOG"
 
-# 4) Aplica policies.json SOMENTE no perfil do 'prova'
+# 5) policies.json — SOMENTE no perfil do 'prova'
 cat > "$PERFIL/policies.json" <<'EOF'
 {
   "policies": {
@@ -75,9 +83,9 @@ EOF
 chown -R "$USUARIO:$USUARIO" "$PERFIL/policies.json"
 chmod 644 "$PERFIL/policies.json"
 
-# 5) Aplica user.js SOMENTE no perfil do 'prova'
+# 6) user.js — SOMENTE no perfil do 'prova'
 cat > "$PERFIL/user.js" <<'EOF'
-// Lab Prova — travas do Firefox
+// Lab Prova - travas do Firefox
 user_pref("browser.fullscreen.animate", false);
 user_pref("browser.tabs.warnOnClose", false);
 user_pref("browser.tabs.closeWindowWithLastTab", false);
