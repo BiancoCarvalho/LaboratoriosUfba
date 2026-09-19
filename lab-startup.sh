@@ -8,22 +8,22 @@ echo "========================================="
 echo "  Baixando scripts do repositório..."
 echo "========================================="
 
-wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-profile-config.sh -O /tmp/lab-profile-config.sh
-wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-aluno-config.sh -O /tmp/lab-aluno-config.sh
-wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-programs.sh -O /tmp/lab-programs.sh
-wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-eula-programs.sh -O /tmp/lab-eula-programs.sh
-wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-program-config.sh -O /tmp/lab-program-config.sh
-wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-inventory.sh -O /tmp/lab-inventory.sh
-wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-admin-profile-config.sh -O /tmp/lab-admin-profile-config.sh
-wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/labsecurity-agent.sh -O /tmp/labsecurity-agent.sh
+wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-profile-config.sh -O /tmp/lab-profile-config.sh
+wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-aluno-config.sh -O /tmp/lab-aluno-config.sh
+wget -4 4https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-programs.sh -O /tmp/lab-programs.sh
+wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-eula-programs.sh -O /tmp/lab-eula-programs.sh
+wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-program-config.sh -O /tmp/lab-program-config.sh
+wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-inventory.sh -O /tmp/lab-inventory.sh
+wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-admin-profile-config.sh -O /tmp/lab-admin-profile-config.sh
+wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/labsecurity-agent.sh -O /tmp/labsecurity-agent.sh
 
-wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-block.sh -O /tmp/lab-block.sh
-wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-unblock.sh -O /tmp/lab-unblock.sh
-wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-prova-profile-config.sh -O /tmp/lab-prova-profile-config.sh
-wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-prova-config.sh -O /tmp/lab-prova-config.sh
-wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-prova-install.sh -O /tmp/lab-prova-install.sh
-wget https://raw.githubusercontent.com/graco-ufba/lab-scripts/main/lab-labadmin-config.sh -O /tmp/lab-labadmin-config.sh
-wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/policies-prova.json -O /tmp/policies-prova.json
+wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-block.sh -O /tmp/lab-block.sh
+wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-unblock.sh -O /tmp/lab-unblock.sh
+wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-prova-profile-config.sh -O /tmp/lab-prova-profile-config.sh
+wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-prova-config.sh -O /tmp/lab-prova-config.sh
+wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-prova-install.sh -O /tmp/lab-prova-install.sh
+wget -4 https://raw.githubusercontent.com/graco-ufba/lab-scripts/main/lab-labadmin-config.sh -O /tmp/lab-labadmin-config.sh
+wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/policies-prova.json -O /tmp/policies-prova.json
 
 echo "✅ Download concluído!"
 echo ""
