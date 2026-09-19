@@ -22,6 +22,7 @@ wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-unblo
 wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-prova-profile-config.sh -O /tmp/lab-prova-profile-config.sh
 wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-prova-config.sh -O /tmp/lab-prova-config.sh
 wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-prova-install.sh -O /tmp/lab-prova-install.sh
+wget https://raw.githubusercontent.com/graco-ufba/lab-scripts/main/lab-labadmin-config.sh -O /tmp/lab-labadmin-config.sh
 wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/policies-prova.json -O /tmp/policies-prova.json
 
 echo "✅ Download concluído!"
@@ -39,6 +40,9 @@ if ! [ -f /usr/local/sbin/done.txt ]; then
 	echo "false" > /usr/local/sbin/done.txt
 	chmod 755 /usr/local/sbin/done.txt
 else
+	if [ ! -f /usr/local/sbin/lab-labadmin-config.sh ] || ! cmp -s /usr/local/sbin/lab-labadmin-config.sh /tmp/lab-labadmin-config.sh; then
+    	echo "false" > /usr/local/sbin/done.txt
+	fi
 	if [ ! -f /usr/local/sbin/lab-block.sh ] || ! cmp -s /usr/local/sbin/lab-block.sh /tmp/lab-block.sh; then
     	echo "false" > /usr/local/sbin/done.txt
 	fi
@@ -93,6 +97,7 @@ if [ "$DONE" = "false" ]; then
 	echo "  Atualizando scripts..."
 	echo "========================================="
 
+	cp /tmp/lab-labadmin-config.sh /usr/local/sbin
 	cp /tmp/lab-block.sh /usr/local/sbin
 	cp /tmp/lab-unblock.sh /usr/local/sbin
 	cp /tmp/lab-prova-profile-config.sh /usr/local/sbin
@@ -109,6 +114,7 @@ if [ "$DONE" = "false" ]; then
 	cp /tmp/lab-admin-profile-config.sh /usr/local/sbin
 	cp /tmp/labsecurity-agent.sh /usr/local/sbin
 
+	chmod 755 /usr/local/sbin/lab-labadmin-config.sh
 	chmod 755 /usr/local/sbin/lab-block.sh
 	chmod 755 /usr/local/sbin/lab-unblock.sh
     chmod 755 /usr/local/sbin/lab-prova-profile-config.sh
