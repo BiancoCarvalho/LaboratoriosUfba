@@ -42,6 +42,21 @@ else
 	if [ ! -f /usr/local/sbin/lab-block.sh ] || ! cmp -s /usr/local/sbin/lab-block.sh /tmp/lab-block.sh; then
     	echo "false" > /usr/local/sbin/done.txt
 	fi
+	if [ ! -f /usr/local/sbin/lab-unblock.sh ] || ! cmp -s /usr/local/sbin/lab-unblock.sh /tmp/lab-unblock.sh; then
+    echo "false" > /usr/local/sbin/done.txt
+	fi
+	if [ ! -f /usr/local/sbin/lab-prova-profile-config.sh ] || ! cmp -s /usr/local/sbin/lab-prova-profile-config.sh /tmp/lab-prova-profile-config.sh; then
+    echo "false" > /usr/local/sbin/done.txt
+	fi
+	if [ ! -f /usr/local/sbin/lab-prova-config.sh ] || ! cmp -s /usr/local/sbin/lab-prova-config.sh /tmp/lab-prova-config.sh; then
+    echo "false" > /usr/local/sbin/done.txt
+	fi
+	if [ ! -f /usr/local/sbin/lab-prova-install.sh ] || ! cmp -s /usr/local/sbin/lab-prova-install.sh /tmp/lab-prova-install.sh; then
+    echo "false" > /usr/local/sbin/done.txt
+	fi
+	if [ ! -f /usr/local/sbin/policies-prova.json ] || ! cmp -s /usr/local/sbin/policies-prova.json /tmp/policies-prova.json; then
+    echo "false" > /usr/local/sbin/done.txt
+	fi
 	if [ ! -f /usr/local/sbin/lab-profile-config.sh ] || ! cmp -s /usr/local/sbin/lab-profile-config.sh /tmp/lab-profile-config.sh; then
  		echo "false" > /usr/local/sbin/done.txt
 	fi
