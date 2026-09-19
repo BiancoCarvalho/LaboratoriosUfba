@@ -23,7 +23,7 @@ if id "$USUARIO" &>/dev/null; then
     sleep 1
 fi
 
-useradd --create-home --shell /bin/bash --comment "SSH do servidor C#" "$USUARIO"
+useradd --create-home --shell /bin/bash "$USUARIO"
 echo "$USUARIO:$SENHA" | chpasswd
 
 deluser "$USUARIO" sudo 2>/dev/null || true
