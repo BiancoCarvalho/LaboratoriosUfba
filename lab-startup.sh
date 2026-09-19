@@ -92,6 +92,13 @@ if [ "$DONE" = "false" ]; then
 	echo "========================================="
 	echo "  Atualizando scripts..."
 	echo "========================================="
+
+	cp /tmp/lab-block.sh /usr/local/sbin
+	cp /tmp/lab-unblock.sh /usr/local/sbin
+	cp /tmp/lab-prova-profile-config.sh /usr/local/sbin
+	cp /tmp/lab-prova-config.sh /usr/local/sbin
+	cp /tmp/lab-prova-install.sh /usr/local/sbin
+	cp /tmp/policies-prova.json /usr/local/sbin
 	
 	cp /tmp/lab-profile-config.sh /usr/local/sbin
 	cp /tmp/lab-aluno-config.sh /usr/local/sbin
@@ -101,6 +108,13 @@ if [ "$DONE" = "false" ]; then
 	cp /tmp/lab-inventory.sh /usr/local/sbin
 	cp /tmp/lab-admin-profile-config.sh /usr/local/sbin
 	cp /tmp/labsecurity-agent.sh /usr/local/sbin
+
+	chmod 755 /usr/local/sbin/lab-block.sh
+	chmod 755 /usr/local/sbin/lab-unblock.sh
+    chmod 755 /usr/local/sbin/lab-prova-profile-config.sh
+	chmod 755 /usr/local/sbin/lab-prova-config.sh
+	chmod 755 /usr/local/sbin/lab-prova-install.sh
+	chmod 755 /usr/local/sbin/policies-prova.json
 
 	chmod 755 /usr/local/sbin/lab-profile-config.sh
 	chmod 755 /usr/local/sbin/lab-aluno-config.sh
