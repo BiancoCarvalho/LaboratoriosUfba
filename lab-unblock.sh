@@ -1,10 +1,10 @@
 #!/bin/bash
 # =====================================================================
 #  lab-unblock.sh
-#  v2.0.0
+#  v3.0.0
 #
-#  Desativa o "modo prova": remove o usuário 'prova'.
-#  Assim, todo o perfil (com policies) é apagado.
+#  Desativa o modo prova: remove as policies.
+#  Todos os usuários voltam a acessar tudo.
 #
 #  Localização: /usr/local/sbin/lab-unblock.sh
 #  Uso: sudo /usr/local/sbin/lab-unblock.sh
@@ -12,21 +12,24 @@
 
 set -e
 
-USUARIO="prova"
 LOG="/var/log/lab.log"
 
 echo "[$(date '+%F %T')] host=$(hostname) UNBLOCK" >> "$LOG"
 
-# Mata processos do 'prova'
-pkill -9 -u "$USUARIO" 2>/dev/null || true
+# ---------------------------------------------------------------------
+# 1) Remove policies do Snap
+# ---------------------------------------------------------------------
+rm -f /var/snap/firefox/common/policies/policies.json 2>/dev/null || true
 
-# Remove o usuário (e a home, com o perfil do Firefox)
-if id "$USUARIO" &>/dev/null; then
-    userdel -r "$USUARIO" 2>/dev/null || true
-fi
+# ---------------------------------------------------------------------
+# 2) Remove policies do .deb
+# ---------------------------------------------------------------------
+rm -f /etc/firefox/policies/policies.json 2>/dev/null || true
 
-# Remove regra do sudoers
-rm -f /etc/sudoers.d/99-prova-bloqueado
+# ---------------------------------------------------------------------
+# 3) Mata o Firefox para forçar releitura
+# ---------------------------------------------------------------------
+pkill -9 firefox 2>/dev/null || true
 
 echo "[$(date '+%F %T')] UNBLOCK concluído" >> "$LOG"
 exit 0
