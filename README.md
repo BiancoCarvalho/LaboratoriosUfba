@@ -7,7 +7,7 @@ Scripts para automatizar instalação de pacotes e configurações em geral em c
 Para instalar o script de atualização na máquina, execute o seguinte comando **como usuário root**:
 
 ```
-wget -O - https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/install.sh | /bin/bash
+wget -4 -O - https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/install.sh | /bin/bash
 ```
 
 O script `lab-startup.sh` será executado a cada inicialização da máquina.
