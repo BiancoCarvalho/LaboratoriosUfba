@@ -1,13 +1,9 @@
 #!/bin/bash
 # =====================================================================
 #  lab-startup.sh
-#  v5.0.0
+#  v6.0.0
 #
-#  Roda a cada boot. Baixa os scripts do repositório e executa os de
-#  configuração de usuário.
-#
-#  NÃO chama lab-block.sh nem lab-prova-install.sh!
-#  O modo prova só é ativado quando o servidor C# manda via SSH.
+#  Roda a cada boot. Baixa os scripts e executa.
 # =====================================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -15,7 +11,6 @@ export DEBIAN_FRONTEND=noninteractive
 REPO="https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main"
 DIR="/usr/local/sbin"
 
-# Lista de todos os scripts
 SCRIPTS="
 lab-profile-config.sh
 lab-aluno-config.sh
@@ -28,6 +23,7 @@ lab-labadmin-config.sh
 lab-prova-install.sh
 lab-block.sh
 lab-unblock.sh
+lab-postlogin-default.sh
 labadmin.pub
 labsecurity-agent.sh
 "
@@ -65,10 +61,22 @@ if [ "$DONE" = "false" ]; then
     chmod 755 "$DIR"/lab-*.sh 2>/dev/null || true
     chmod 644 "$DIR/labadmin.pub" 2>/dev/null || true
 
-    # Executa os scripts de configuração de usuário
+    # Copia o PostLogin/Default
+    if [ -f "/tmp/lab-postlogin-default.sh" ] && [ -s "/tmp/lab-postlogin-default.sh" ]; then
+        mkdir -p /etc/gdm3/PostLogin
+        cp /tmp/lab-postlogin-default.sh /etc/gdm3/PostLogin/Default
+        chmod a+x /etc/gdm3/PostLogin/Default
+        echo "==> /etc/gdm3/PostLogin/Default atualizado"
+    fi
+
+    # Executa os scripts
     # ATENÇÃO: NÃO chamar lab-block.sh nem lab-prova-install.sh aqui!
     [ -f "$DIR/lab-profile-config.sh" ]       && "$DIR/lab-profile-config.sh"       || true
     [ -f "$DIR/lab-aluno-config.sh" ]         && "$DIR/lab-aluno-config.sh"         || true
+    [ -f "$DIR/lab-programs.sh" ]             && "$DIR/lab-programs.sh"             || true
+    [ -f "$DIR/lab-eula-programs.sh" ]        && "$DIR/lab-eula-programs.sh"        || true
+    [ -f "$DIR/lab-program-config.sh" ]       && "$DIR/lab-program-config.sh"       || true
+    [ -f "$DIR/lab-inventory.sh" ]            && "$DIR/lab-inventory.sh"            || true
     [ -f "$DIR/lab-admin-profile-config.sh" ] && "$DIR/lab-admin-profile-config.sh" || true
     [ -f "$DIR/lab-labadmin-config.sh" ]      && "$DIR/lab-labadmin-config.sh"      || true
 
