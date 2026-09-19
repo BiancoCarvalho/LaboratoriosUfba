@@ -39,6 +39,9 @@ if ! [ -f /usr/local/sbin/done.txt ]; then
 	echo "false" > /usr/local/sbin/done.txt
 	chmod 755 /usr/local/sbin/done.txt
 else
+	if [ ! -f /usr/local/sbin/lab-block.sh ] || ! cmp -s /usr/local/sbin/lab-block.sh /tmp/lab-block.sh; then
+    	echo "false" > /usr/local/sbin/done.txt
+	fi
 	if [ ! -f /usr/local/sbin/lab-profile-config.sh ] || ! cmp -s /usr/local/sbin/lab-profile-config.sh /tmp/lab-profile-config.sh; then
  		echo "false" > /usr/local/sbin/done.txt
 	fi
