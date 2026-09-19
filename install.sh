@@ -1,8 +1,15 @@
 #!/bin/sh
 # =====================================================================
 #  install.sh
-#  Instala o serviço que roda os scripts no boot
-#  Uso: wget -O - <URL>/install.sh | sudo bash
+#  Instala o serviço labstartup (roda a cada boot)
+#  NÃO dispara na instalação — você roda manualmente quando quiser
+#
+#  Uso:
+#    wget -O - https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/install.sh | sudo bash
+#
+#  Depois, para rodar manualmente:
+#    sudo systemctl start labstartup.service
+#    sudo journalctl -fu labstartup.service
 # =====================================================================
 
 set -e
@@ -17,7 +24,7 @@ echo ""
 # ---------------------------------------------------------------------
 # 1) Cria o script que roda no boot
 # ---------------------------------------------------------------------
-echo "==> [1/4] Criando /root/labstartup.sh"
+echo "==> [1/3] Criando /root/labstartup.sh"
 
 cat > /root/labstartup.sh <<'EOF'
 #!/bin/sh
@@ -34,7 +41,7 @@ echo "    + /root/labstartup.sh criado"
 # ---------------------------------------------------------------------
 # 2) Cria o serviço systemd
 # ---------------------------------------------------------------------
-echo "==> [2/4] Criando /etc/systemd/system/labstartup.service"
+echo "==> [2/3] Criando /etc/systemd/system/labstartup.service"
 
 cat > /etc/systemd/system/labstartup.service <<'EOF'
 [Unit]
@@ -55,31 +62,14 @@ EOF
 echo "    + labstartup.service criado"
 
 # ---------------------------------------------------------------------
-# 3) Recarrega systemd e habilita
+# 3) Recarrega systemd e habilita (sem iniciar)
 # ---------------------------------------------------------------------
-echo "==> [3/4] Habilitando serviço"
+echo "==> [3/3] Habilitando serviço (sem iniciar)"
 
 systemctl daemon-reload
 systemctl enable labstartup.service
 
 echo "    + serviço habilitado (roda no próximo boot)"
-
-# ---------------------------------------------------------------------
-# 4) Roda AGORA (sem precisar reiniciar)
-# ---------------------------------------------------------------------
-echo "==> [4/4] Executando pela primeira vez (pode demorar ~30s)"
-echo ""
-
-systemctl start labstartup.service
-
-# Espera até 60s para terminar
-for i in $(seq 1 60); do
-    if systemctl is-active --quiet labstartup.service; then
-        sleep 1
-    else
-        break
-    fi
-done
 
 # ---------------------------------------------------------------------
 # Verificação
@@ -91,58 +81,34 @@ echo "=================================================="
 echo ""
 
 if systemctl is-enabled --quiet labstartup.service; then
-    echo "  ✅ Serviço habilitado (roda a cada boot)"
+    echo "  OK: Serviço habilitado (roda a cada boot)"
 else
-    echo "  ❌ Serviço NÃO habilitado"
+    echo "  ERRO: Serviço NÃO habilitado"
 fi
 
 STATUS=$(systemctl is-active labstartup.service)
 if [ "$STATUS" = "active" ]; then
-    echo "  ⏳ Serviço ainda rodando..."
-elif [ "$STATUS" = "failed" ]; then
-    echo "  ⚠️ Serviço falhou. Veja o log:"
-    echo "     journalctl -u labstartup.service -n 50"
+    echo "  Serviço está ATIVO agora"
 else
-    echo "  ✅ Serviço terminou (código: $STATUS)"
-fi
-
-echo ""
-echo " Verificando scripts instalados:"
-for f in lab-block.sh lab-unblock.sh lab-prova-config.sh lab-labadmin-config.sh; do
-    if [ -f "/usr/local/sbin/$f" ]; then
-        SIZE=$(stat -c%s "/usr/local/sbin/$f" 2>/dev/null || echo 0)
-        if [ "$SIZE" -gt 0 ]; then
-            echo "  ✅ /usr/local/sbin/$f ($SIZE bytes)"
-        else
-            echo "  ❌ /usr/local/sbin/$f está VAZIO"
-        fi
-    else
-        echo "  ❌ /usr/local/sbin/$f NÃO existe"
-    fi
-done
-
-echo ""
-echo " Verificando usuários:"
-if id labadmin &>/dev/null; then
-    echo "  ✅ usuário labadmin existe"
-else
-    echo "  ⚠️ usuário labadmin NÃO existe (rode o lab-labadmin-config.sh)"
-fi
-
-if id prova &>/dev/null; then
-    echo "  ⚠️ usuário prova EXISTE (será removido no unblock)"
-else
-    echo "  ✅ usuário prova NÃO existe (normal antes da prova)"
+    echo "  Serviço está INATIVO (normal — não foi iniciado)"
 fi
 
 echo ""
 echo "=================================================="
-echo " ✅ INSTALAÇÃO CONCLUÍDA"
+echo " INSTALAÇÃO CONCLUÍDA"
 echo "=================================================="
+echo ""
+echo " O serviço está instalado, mas NÃO foi iniciado."
+echo ""
+echo " Para rodar AGORA (manualmente):"
+echo "   sudo systemctl start labstartup.service"
 echo ""
 echo " Para acompanhar o log:"
-echo "   journalctl -fu labstartup.service"
+echo "   sudo journalctl -fu labstartup.service"
 echo ""
-echo " Para rodar de novo manualmente:"
-echo "   systemctl restart labstartup.service"
+echo " Para rodar de novo:"
+echo "   sudo systemctl restart labstartup.service"
+echo ""
+echo " Para ver o status:"
+echo "   sudo systemctl status labstartup.service"
 echo ""
