@@ -1,7 +1,14 @@
 #!/bin/bash
-# Lab Labadmin Profile Config
-# v1.1.0
-# Cria o usuário 'labadmin' (SSH do servidor C#) e configura a chave
+# =====================================================================
+#  lab-labadmin-config.sh
+#  v2.0.0
+#
+#  Cria o usuário 'labadmin' (usado pelo servidor C# via SSH).
+#  Configura a chave pública e o sudoers restrito.
+#
+#  Localização: /usr/local/sbin/lab-labadmin-config.sh
+#  Uso: sudo /usr/local/sbin/lab-labadmin-config.sh
+# =====================================================================
 
 export DEBIAN_FRONTEND=noninteractive
 
@@ -18,12 +25,12 @@ echo "[$(date '+%F %T')] host=$(hostname) LABADMIN-CONFIG" >> "$LOG"
 
 # Cria/recria
 if id "$USUARIO" &>/dev/null; then
-    pkill -u "$USUARIO" 2>/dev/null || true
+    pkill -9 -u "$USUARIO" 2>/dev/null || true
     userdel -r "$USUARIO" 2>/dev/null || true
     sleep 1
 fi
 
-useradd --create-home --shell /bin/bash "$USUARIO"
+useradd --create-home --shell /bin/bash --comment "Usuario SSH do servidor" "$USUARIO"
 echo "$USUARIO:$SENHA" | chpasswd
 
 deluser "$USUARIO" sudo 2>/dev/null || true
@@ -44,12 +51,13 @@ fi
 chmod 600 /home/$USUARIO/.ssh/authorized_keys
 chown $USUARIO:$USUARIO /home/$USUARIO/.ssh/authorized_keys
 
-# Sudoers: só os scripts do modo prova
-tee /etc/sudoers.d/labadmin > /dev/null <<EOF
-$USUARIO ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block.sh
-$USUARIO ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-unblock.sh
-$USUARIO ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-prova-profile-config.sh
-$USUARIO ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-prova-config.sh
+# Sudoers restrito
+cat > /etc/sudoers.d/labadmin <<'EOF'
+labadmin ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block.sh
+labadmin ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-unblock.sh
+labadmin ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-prova-profile-config.sh
+labadmin ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-prova-config.sh
+labadmin ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-prova-install.sh
 EOF
 
 chmod 440 /etc/sudoers.d/labadmin
