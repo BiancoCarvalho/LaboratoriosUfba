@@ -1,304 +1,110 @@
 #!/bin/bash
+# =====================================================================
+#  lab-startup.sh
+#  Baixa e executa os scripts do repositório
+#  NÃO chama lab-block.sh nem lab-prova-config.sh!
+# =====================================================================
+
 export DEBIAN_FRONTEND=noninteractive
 
-# ==============================
-# 1. Baixa os scripts atualizados do repositório
-# ==============================
-echo "========================================="
-echo "  Baixando scripts do repositório..."
-echo "========================================="
+REPO="https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main"
+DIR="/usr/local/sbin"
 
-wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-profile-config.sh -O /tmp/lab-profile-config.sh
-wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-aluno-config.sh -O /tmp/lab-aluno-config.sh
-wget -4 4https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-programs.sh -O /tmp/lab-programs.sh
-wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-eula-programs.sh -O /tmp/lab-eula-programs.sh
-wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-program-config.sh -O /tmp/lab-program-config.sh
-wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-inventory.sh -O /tmp/lab-inventory.sh
-wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-admin-profile-config.sh -O /tmp/lab-admin-profile-config.sh
-wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/labsecurity-agent.sh -O /tmp/labsecurity-agent.sh
+echo "==> Baixando scripts do repositório..."
 
-wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-block.sh -O /tmp/lab-block.sh
-wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-unblock.sh -O /tmp/lab-unblock.sh
-wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-prova-profile-config.sh -O /tmp/lab-prova-profile-config.sh
-wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-prova-config.sh -O /tmp/lab-prova-config.sh
-wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-prova-install.sh -O /tmp/lab-prova-install.sh
-wget -4 https://raw.githubusercontent.com/graco-ufba/lab-scripts/main/lab-labadmin-config.sh -O /tmp/lab-labadmin-config.sh
-wget -4 https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/policies-prova.json -O /tmp/policies-prova.json
+# Lista de scripts (todos os do repo)
+for f in \
+    lab-profile-config.sh \
+    lab-aluno-config.sh \
+    lab-programs.sh \
+    lab-eula-programs.sh \
+    lab-program-config.sh \
+    lab-inventory.sh \
+    lab-admin-profile-config.sh \
+    lab-labadmin-config.sh \
+    lab-prova-profile-config.sh \
+    lab-prova-config.sh \
+    lab-prova-install.sh \
+    lab-block.sh \
+    lab-unblock.sh \
+    labadmin.pub \
+    labsecurity-agent.sh
+do
+    wget -q -O "/tmp/$f" "$REPO/$f" || true
+done
 
-echo "✅ Download concluído!"
-echo ""
+# Verifica se houve mudança
+DONE="true"
+[ ! -f "$DIR/done.txt" ] && echo "false" > "$DIR/done.txt"
 
-# ==============================
-# 2. Verifica se já existe o controle de atualização
-# ==============================
-echo "========================================="
-echo "  Verificando atualizações..."
-echo "========================================="
+for f in \
+    lab-profile-config.sh \
+    lab-aluno-config.sh \
+    lab-programs.sh \
+    lab-eula-programs.sh \
+    lab-program-config.sh \
+    lab-inventory.sh \
+    lab-admin-profile-config.sh \
+    lab-labadmin-config.sh \
+    lab-prova-profile-config.sh \
+    lab-prova-config.sh \
+    lab-prova-install.sh \
+    lab-block.sh \
+    lab-unblock.sh \
+    labadmin.pub \
+    labsecurity-agent.sh
+do
+    if [ ! -f "$DIR/$f" ] || ! cmp -s "$DIR/$f" "/tmp/$f"; then
+        echo "false" > "$DIR/done.txt"
+        break
+    fi
+done
 
-if ! [ -f /usr/local/sbin/done.txt ]; then
-	touch /usr/local/sbin/done.txt
-	echo "false" > /usr/local/sbin/done.txt
-	chmod 755 /usr/local/sbin/done.txt
-else
-	if [ ! -f /usr/local/sbin/lab-labadmin-config.sh ] || ! cmp -s /usr/local/sbin/lab-labadmin-config.sh /tmp/lab-labadmin-config.sh; then
-    	echo "false" > /usr/local/sbin/done.txt
-	fi
-	if [ ! -f /usr/local/sbin/lab-block.sh ] || ! cmp -s /usr/local/sbin/lab-block.sh /tmp/lab-block.sh; then
-    	echo "false" > /usr/local/sbin/done.txt
-	fi
-	if [ ! -f /usr/local/sbin/lab-unblock.sh ] || ! cmp -s /usr/local/sbin/lab-unblock.sh /tmp/lab-unblock.sh; then
-    echo "false" > /usr/local/sbin/done.txt
-	fi
-	if [ ! -f /usr/local/sbin/lab-prova-profile-config.sh ] || ! cmp -s /usr/local/sbin/lab-prova-profile-config.sh /tmp/lab-prova-profile-config.sh; then
-    echo "false" > /usr/local/sbin/done.txt
-	fi
-	if [ ! -f /usr/local/sbin/lab-prova-config.sh ] || ! cmp -s /usr/local/sbin/lab-prova-config.sh /tmp/lab-prova-config.sh; then
-    echo "false" > /usr/local/sbin/done.txt
-	fi
-	if [ ! -f /usr/local/sbin/lab-prova-install.sh ] || ! cmp -s /usr/local/sbin/lab-prova-install.sh /tmp/lab-prova-install.sh; then
-    echo "false" > /usr/local/sbin/done.txt
-	fi
-	if [ ! -f /usr/local/sbin/policies-prova.json ] || ! cmp -s /usr/local/sbin/policies-prova.json /tmp/policies-prova.json; then
-    echo "false" > /usr/local/sbin/done.txt
-	fi
-	if [ ! -f /usr/local/sbin/lab-profile-config.sh ] || ! cmp -s /usr/local/sbin/lab-profile-config.sh /tmp/lab-profile-config.sh; then
- 		echo "false" > /usr/local/sbin/done.txt
-	fi
-	if [ ! -f /usr/local/sbin/lab-aluno-config.sh ] || ! cmp -s /usr/local/sbin/lab-aluno-config.sh /tmp/lab-aluno-config.sh; then
-		echo "false" > /usr/local/sbin/done.txt
-	fi
-	if [ ! -f /usr/local/sbin/lab-programs.sh ] || ! cmp -s /usr/local/sbin/lab-programs.sh /tmp/lab-programs.sh; then
-		echo "false" > /usr/local/sbin/done.txt
-	fi
-	if [ ! -f /usr/local/sbin/lab-eula-programs.sh ] || ! cmp -s /usr/local/sbin/lab-eula-programs.sh /tmp/lab-eula-programs.sh; then
-		echo "false" > /usr/local/sbin/done.txt
-	fi
-	if [ ! -f /usr/local/sbin/lab-program-config.sh ] || ! cmp -s /usr/local/sbin/lab-program-config.sh /tmp/lab-program-config.sh; then
-		echo "false" > /usr/local/sbin/done.txt
-	fi
-	if [ ! -f /usr/local/sbin/lab-inventory.sh ] || ! cmp -s /usr/local/sbin/lab-inventory.sh /tmp/lab-inventory.sh; then
-		echo "false" > /usr/local/sbin/done.txt
-	fi
-	if [ ! -f /usr/local/sbin/lab-admin-profile-config.sh ] || ! cmp -s /usr/local/sbin/lab-admin-profile-config.sh /tmp/lab-admin-profile-config.sh; then
-		echo "false" > /usr/local/sbin/done.txt
-	fi
-	if [ ! -f /usr/local/sbin/labsecurity-agent.sh ] || ! cmp -s /usr/local/sbin/labsecurity-agent.sh /tmp/labsecurity-agent.sh; then
-		echo "false" > /usr/local/sbin/done.txt
-	fi
-fi
+DONE=$(cat "$DIR/done.txt")
 
-DONE=$(cat /usr/local/sbin/done.txt)
-
-# ==============================
-# 3. Copia e executa scripts se houve atualização
-# ==============================
 if [ "$DONE" = "false" ]; then
-	echo "========================================="
-	echo "  Atualizando scripts..."
-	echo "========================================="
+    echo "==> Atualizando scripts..."
 
-	cp /tmp/lab-labadmin-config.sh /usr/local/sbin
-	cp /tmp/lab-block.sh /usr/local/sbin
-	cp /tmp/lab-unblock.sh /usr/local/sbin
-	cp /tmp/lab-prova-profile-config.sh /usr/local/sbin
-	cp /tmp/lab-prova-config.sh /usr/local/sbin
-	cp /tmp/lab-prova-install.sh /usr/local/sbin
-	cp /tmp/policies-prova.json /usr/local/sbin
-	
-	cp /tmp/lab-profile-config.sh /usr/local/sbin
-	cp /tmp/lab-aluno-config.sh /usr/local/sbin
-	cp /tmp/lab-programs.sh /usr/local/sbin
-	cp /tmp/lab-eula-programs.sh /usr/local/sbin
-	cp /tmp/lab-program-config.sh /usr/local/sbin
-	cp /tmp/lab-inventory.sh /usr/local/sbin
-	cp /tmp/lab-admin-profile-config.sh /usr/local/sbin
-	cp /tmp/labsecurity-agent.sh /usr/local/sbin
+    for f in \
+        lab-profile-config.sh \
+        lab-aluno-config.sh \
+        lab-programs.sh \
+        lab-eula-programs.sh \
+        lab-program-config.sh \
+        lab-inventory.sh \
+        lab-admin-profile-config.sh \
+        lab-labadmin-config.sh \
+        lab-prova-profile-config.sh \
+        lab-prova-config.sh \
+        lab-prova-install.sh \
+        lab-block.sh \
+        lab-unblock.sh \
+        labadmin.pub \
+        labsecurity-agent.sh
+    do
+        cp "/tmp/$f" "$DIR/" 2>/dev/null || true
+    done
 
-	chmod 755 /usr/local/sbin/lab-labadmin-config.sh
-	chmod 755 /usr/local/sbin/lab-block.sh
-	chmod 755 /usr/local/sbin/lab-unblock.sh
-    chmod 755 /usr/local/sbin/lab-prova-profile-config.sh
-	chmod 755 /usr/local/sbin/lab-prova-config.sh
-	chmod 755 /usr/local/sbin/lab-prova-install.sh
-	chmod 755 /usr/local/sbin/policies-prova.json
+    chmod 755 "$DIR"/lab-*.sh 2>/dev/null || true
+    chmod 644 "$DIR/labadmin.pub" 2>/dev/null || true
 
-	chmod 755 /usr/local/sbin/lab-profile-config.sh
-	chmod 755 /usr/local/sbin/lab-aluno-config.sh
-	chmod 755 /usr/local/sbin/lab-programs.sh
-	chmod 755 /usr/local/sbin/lab-eula-programs.sh
-	chmod 755 /usr/local/sbin/lab-program-config.sh
-	chmod 755 /usr/local/sbin/lab-inventory.sh
-	chmod 755 /usr/local/sbin/lab-admin-profile-config.sh
-	chmod 755 /usr/local/sbin/labsecurity-agent.sh
+    # -----------------------------------------------------------------
+    # RODA OS SCRIPTS DE CONFIGURAÇÃO
+    # IMPORTANTE: NÃO chamar lab-block.sh nem lab-prova-config.sh aqui!
+    # -----------------------------------------------------------------
+    /usr/local/sbin/lab-profile-config.sh          || true
+    /usr/local/sbin/lab-aluno-config.sh            || true
+    /usr/local/sbin/lab-admin-profile-config.sh    || true
+    /usr/local/sbin/lab-labadmin-config.sh         || true
 
-	echo "✅ Scripts copiados com sucesso!"
-	echo ""
-	
-	echo "========================================="
-	echo "  Executando scripts de configuração..."
-	echo "========================================="
-	
-	/usr/local/sbin/lab-profile-config.sh
-	/usr/local/sbin/lab-aluno-config.sh
-	/usr/local/sbin/lab-programs.sh
-	/usr/local/sbin/lab-eula-programs.sh
-	/usr/local/sbin/lab-program-config.sh
-	/usr/local/sbin/lab-inventory.sh
-	/usr/local/sbin/lab-admin-profile-config.sh
-    /usr/local/sbin/labsecurity-agent.sh
+    # O lab-prova-config.sh NÃO é chamado no boot.
+    # O lab-prova-install.sh NÃO é chamado no boot.
+    # Só o lab-block.sh (via SSH) chama o lab-prova-config.sh.
 
-	/usr/local/sbin/lab-labadmin-config.sh
-	/usr/local/sbin/lab-block.sh
-	/usr/local/sbin/lab-unblock.sh
-    /usr/local/sbin/lab-prova-profile-config.sh
-	/usr/local/sbin/lab-prova-config.sh
-	/usr/local/sbin/lab-prova-install.sh
-	/usr/local/sbin/policies-prova.json
-
-
-	rm -f /tmp/lab-admin-profile-config.sh
-
-	echo ""
-	echo "✅ SCRIPTS ATUALIZADOS E EXECUTADOS"
-	echo "true" > /usr/local/sbin/done.txt
+    echo "true" > "$DIR/done.txt"
+    echo "==> Scripts atualizados."
 else
-	echo "✅ SEM NECESSIDADE DE ATUALIZAR SCRIPTS"
+    echo "==> Sem atualizações."
 fi
-
-echo ""
-
-# ==============================
-# 4. Instala e inicia o agente LabSecurity como serviço
-# ==============================
-echo "========================================="
-echo "  Instalando LabSecurity Agent..."
-echo "========================================="
-
-# Verificar se o arquivo do agente existe
-if [ -f /usr/local/sbin/labsecurity-agent.sh ]; then
-    
-    echo "✅ Agente encontrado em /usr/local/sbin/labsecurity-agent.sh"
-    
-    # Criar serviço systemd
-    cat > /etc/systemd/system/labsecurity-agent.service << 'EOF'
-[Unit]
-Description=LabSecurity Monitoring Agent
-After=network.target
-Wants=network.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/sbin/labsecurity-agent.sh
-Restart=always
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    echo "✅ Serviço systemd criado"
-    
-    # Recarregar systemd e ativar serviço
-    systemctl daemon-reload
-    systemctl enable labsecurity-agent.service
-    systemctl restart labsecurity-agent.service
-    
-    sleep 2
-    
-    # Verificar se o serviço iniciou corretamente
-    if systemctl is-active --quiet labsecurity-agent.service; then
-        echo "✅ LabSecurity Agent instalado e rodando!"
-        echo "📊 Dashboard: http://IC-1046419:5000"
-    else
-        echo "⚠️ Falha ao iniciar o serviço. Verifique os logs:"
-        echo "   journalctl -u labsecurity-agent.service -f"
-    fi
-else
-    echo "❌ Arquivo labsecurity-agent.sh não encontrado!"
-    echo "   Verificando se o download foi feito corretamente..."
-    
-    if [ -f /tmp/labsecurity-agent.sh ]; then
-        echo "   Arquivo encontrado em /tmp, copiando manualmente..."
-        cp /tmp/labsecurity-agent.sh /usr/local/sbin/
-        chmod 755 /usr/local/sbin/labsecurity-agent.sh
-        echo "   ✅ Copiado! Reiniciando instalação..."
-        
-        # Tentar instalar novamente
-        cat > /etc/systemd/system/labsecurity-agent.service << 'EOF'
-[Unit]
-Description=LabSecurity Monitoring Agent
-After=network.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/sbin/labsecurity-agent.sh
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
-        systemctl daemon-reload
-        systemctl enable labsecurity-agent.service
-        systemctl start labsecurity-agent.service
-        
-        if systemctl is-active --quiet labsecurity-agent.service; then
-            echo "✅ LabSecurity Agent instalado com sucesso!"
-        else
-            echo "❌ Falha na instalação"
-        fi
-    else
-        echo "❌ Arquivo não encontrado em nenhum local!"
-    fi
-fi
-
-echo ""
-
-# ==============================
-# 5. Executa recriação do usuário NATI
-# ==============================
-echo "========================================="
-echo "  Recriando usuário NATI..."
-echo "========================================="
-
-if [ -f /usr/local/sbin/lab-admin-profile-config.sh ]; then
-    /usr/local/sbin/lab-admin-profile-config.sh
-    echo "✅ Usuário NATI configurado"
-else
-    echo "⚠️ Script lab-admin-profile-config.sh não encontrado"
-fi
-
-echo ""
-
-# ==============================
-# 6. Informações finais
-# ==============================
-echo "========================================="
-echo "  CONFIGURAÇÃO CONCLUÍDA!"
-echo "========================================="
-echo ""
-echo "📋 RESUMO:"
-echo "   ✅ Scripts do laboratório atualizados"
-echo "   ✅ LabSecurity Agent instalado"
-echo ""
-echo "📊 PARA MONITORAR:"
-echo "   Acesse http://IC-1046419:5000 no navegador"
-echo ""
-echo "📋 COMANDOS ÚTEIS:"
-echo "   Ver status: systemctl status labsecurity-agent"
-echo "   Ver logs: journalctl -u labsecurity-agent -f"
-echo "   Parar agente: systemctl stop labsecurity-agent"
-echo "   Iniciar agente: systemctl start labsecurity-agent"
-echo "   Reiniciar agente: systemctl restart labsecurity-agent"
-echo ""
-echo "📁 LOGS:"
-echo "   systemd: journalctl -u labsecurity-agent -n 50"
-echo "   arquivo: tail -f /var/log/labsecurity-agent.log"
-echo ""
-echo "========================================="
 
 exit 0
