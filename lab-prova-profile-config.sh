@@ -6,7 +6,7 @@
 export DEBIAN_FRONTEND=noninteractive
 
 USUARIO="prova"
-SENHA="${PROVA_PASSWORD:-prova@2026}"
+SENHA="${PROVA_PASSWORD:-Pw#Lab2026!}"
 LOG="/var/log/lab.log"
 
 echo "[$(date '+%F %T')] host=$(hostname) PROVA-PROFILE-CONFIG" >> "$LOG"
