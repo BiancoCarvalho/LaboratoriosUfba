@@ -25,8 +25,6 @@ lab-program-config.sh
 lab-inventory.sh
 lab-admin-profile-config.sh
 lab-labadmin-config.sh
-lab-prova-profile-config.sh
-lab-prova-config.sh
 lab-prova-install.sh
 lab-block.sh
 lab-unblock.sh
