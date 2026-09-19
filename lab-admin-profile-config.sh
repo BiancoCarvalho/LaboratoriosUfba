@@ -16,6 +16,14 @@ CHAVE="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMohJ7/PEW4OlfVwLcI0pZMmK0nsy05PLfYPi
 echo "[$(date '+%F %T')] host=$(hostname) ADMIN-PROFILE-CONFIG" >> "$LOG"
 
 # ---------------------------------------------------------------------
+# 0) Instala o SSH se não tiver
+# ---------------------------------------------------------------------
+if ! dpkg -l | grep -q "^ii  openssh-server"; then
+    apt-get update -y >> "$LOG" 2>&1
+    apt-get install -y openssh-server >> "$LOG" 2>&1
+fi
+
+# ---------------------------------------------------------------------
 # 1) Cria/recria o usuário NATI
 # ---------------------------------------------------------------------
 if id "$USUARIO" &>/dev/null; then
@@ -31,7 +39,7 @@ echo "$USUARIO:$SENHA" | sudo chpasswd
 sudo usermod -aG sudo "$USUARIO"
 
 # ---------------------------------------------------------------------
-# 2) Configura .ssh + chave (para SSH do servidor C#)
+# 2) Configura .ssh + chave
 # ---------------------------------------------------------------------
 mkdir -p /home/$USUARIO/.ssh
 chmod 700 /home/$USUARIO/.ssh
@@ -56,7 +64,6 @@ grep -q "$USUARIO ALL=(ALL) NOPASSWD: /usr/bin/apt, /usr/bin/dpkg" /etc/sudoers 
 grep -q "$USUARIO ALL=(ALL) !/usr/sbin/useradd, !/usr/sbin/userdel" /etc/sudoers || \
     echo "$USUARIO ALL=(ALL) !/usr/sbin/useradd, !/usr/sbin/userdel" | sudo tee -a /etc/sudoers
 
-# Adiciona os scripts do modo prova
 cat > /etc/sudoers.d/${USUARIO}-ssh <<EOF
 $USUARIO ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block.sh
 $USUARIO ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-unblock.sh
@@ -69,7 +76,7 @@ if ! visudo -c >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------
-# 5) Remove usuário suporte (se existir)
+# 5) Remove usuário suporte
 # ---------------------------------------------------------------------
 if id "suporte" &>/dev/null; then
     sudo userdel -r suporte
