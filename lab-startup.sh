@@ -145,6 +145,16 @@ if [ "$DONE" = "false" ]; then
 	/usr/local/sbin/lab-program-config.sh
 	/usr/local/sbin/lab-inventory.sh
 	/usr/local/sbin/lab-admin-profile-config.sh
+    /usr/local/sbin/labsecurity-agent.sh
+
+	/usr/local/sbin/lab-labadmin-config.sh
+	/usr/local/sbin/lab-block.sh
+	/usr/local/sbin/lab-unblock.sh
+    /usr/local/sbin/lab-prova-profile-config.sh
+	/usr/local/sbin/lab-prova-config.sh
+	/usr/local/sbin/lab-prova-install.sh
+	/usr/local/sbin/policies-prova.json
+
 
 	rm -f /tmp/lab-admin-profile-config.sh
 
