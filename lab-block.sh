@@ -1,23 +1,22 @@
 #!/bin/bash
 # =====================================================================
 #  lab-block.sh
-#  v6.5.0
+#  v6.6.0
 #
 #  Ativa o modo prova:
 #    - Bloqueia Firefox (Snap ou .deb)
-#    - Bloqueia Chrome / Chromium (formato correto de URLAllowlist)
+#    - Bloqueia Chrome / Chromium
 #    - Fecha os navegadores
 #    - Abre o Firefox no JUDE automaticamente
-#    - Desativa avisos de "site de risco"
 #
 #  Localização: /usr/local/sbin/lab-block.sh
 #  Uso: sudo /usr/local/sbin/lab-block.sh
 # =====================================================================
 
-set -e
+# Sem `set -e` para o script continuar mesmo se um comando falhar
+# (o `pkill` retorna erro quando não encontra o processo)
 
 LOG="/var/log/lab.log"
-USUARIO_LOGADO="aluno"
 URL_JUDE="https://jude.dcc.ufba.br/auth/login"
 
 echo "[$(date '+%F %T')] host=$(hostname) BLOCK" >> "$LOG"
@@ -83,7 +82,7 @@ if [ -f /usr/lib/firefox/firefox ] || [ -f /usr/lib/firefox/firefox.sh ]; then
 fi
 
 # =====================================================================
-# CHROME — policies (FORMATO CORRETO)
+# CHROME — policies
 # =====================================================================
 CHROME_POLICIES='{
   "URLBlocklist": ["*"],
