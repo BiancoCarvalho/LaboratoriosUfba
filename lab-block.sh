@@ -1,23 +1,21 @@
 #!/bin/bash
 # =====================================================================
 #  lab-block.sh
-#  v6.6.0
+#  v7.0.0
 #
 #  Ativa o modo prova:
 #    - Bloqueia Firefox (Snap ou .deb)
 #    - Bloqueia Chrome / Chromium
 #    - Fecha os navegadores
-#    - Abre o Firefox no JUDE automaticamente
+#
+#  NÃO abre nenhum navegador automaticamente.
+#  O aluno abre o Firefox normalmente — já virá bloqueado.
 #
 #  Localização: /usr/local/sbin/lab-block.sh
 #  Uso: sudo /usr/local/sbin/lab-block.sh
 # =====================================================================
 
-# Sem `set -e` para o script continuar mesmo se um comando falhar
-# (o `pkill` retorna erro quando não encontra o processo)
-
 LOG="/var/log/lab.log"
-URL_JUDE="https://jude.dcc.ufba.br/auth/login"
 
 echo "[$(date '+%F %T')] host=$(hostname) BLOCK" >> "$LOG"
 
@@ -86,10 +84,7 @@ fi
 # =====================================================================
 CHROME_POLICIES='{
   "URLBlocklist": ["*"],
-  "URLAllowlist": [
-    "jude.dcc.ufba.br",
-    "*.dcc.ufba.br"
-  ],
+  "URLAllowlist": ["jude.dcc.ufba.br", "*.dcc.ufba.br"],
   "DeveloperToolsAvailability": 2,
   "IncognitoModeAvailability": 1,
   "BrowserSignin": 0,
@@ -128,7 +123,7 @@ if [ -d /usr/lib/chromium ] || command -v chromium &>/dev/null; then
 fi
 
 # =====================================================================
-# FECHA OS NAVEGADORES
+# FECHA OS NAVEGADORES (para forçar releitura das policies)
 # =====================================================================
 pkill -TERM firefox 2>/dev/null || true
 pkill -TERM chrome 2>/dev/null || true
@@ -141,23 +136,6 @@ pkill -9 firefox 2>/dev/null || true
 pkill -9 chrome 2>/dev/null || true
 pkill -9 google-chrome 2>/dev/null || true
 pkill -9 chromium 2>/dev/null || true
-
-sleep 1
-
-# =====================================================================
-# ABRE O FIREFOX NO JUDE
-# =====================================================================
-USUARIO_LOGADO=$(who | grep "(:0)" | awk '{print $1}' | head -n1)
-
-if [ -z "$USUARIO_LOGADO" ]; then
-    USUARIO_LOGADO="aluno"
-fi
-
-echo "[$(date '+%F %T')] Abrindo Firefox no JUDE como $USUARIO_LOGADO" >> "$LOG"
-
-sudo -u "$USUARIO_LOGADO" \
-    DISPLAY=:0 \
-    nohup firefox "$URL_JUDE" >/dev/null 2>&1 &
 
 echo "[$(date '+%F %T')] BLOCK concluído" >> "$LOG"
 exit 0
