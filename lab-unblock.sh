@@ -1,10 +1,10 @@
 #!/bin/bash
 # =====================================================================
 #  lab-unblock.sh
-#  v4.0.0
+#  v5.0.0
 #
 #  Desativa o modo prova:
-#    - Remove as policies do Firefox
+#    - Remove as policies do Firefox (Snap + .deb)
 #    - Remove as policies do Chrome / Chromium
 #    - Mata os navegadores para forçar releitura
 #
@@ -12,31 +12,54 @@
 #  Uso: sudo /usr/local/sbin/lab-unblock.sh
 # =====================================================================
 
-set -e
+set +e
 
 LOG="/var/log/lab.log"
-
 echo "[$(date '+%F %T')] host=$(hostname) UNBLOCK" >> "$LOG"
 
 # =====================================================================
-# FIREFOX
+# FIREFOX — remove TODOS os locais possíveis
 # =====================================================================
-rm -f /var/snap/firefox/common/policies/policies.json 2>/dev/null || true
-rm -f /etc/firefox/policies/policies.json 2>/dev/null || true
+rm -rf /var/snap/firefox/common/policies                 2>/dev/null
+rm -rf /etc/firefox/policies                             2>/dev/null
+rm -f  /usr/lib/firefox/distribution/policies.json       2>/dev/null
+rm -f  /usr/lib/firefox/defaults/pref/*.json             2>/dev/null
 
 # =====================================================================
-# CHROME / CHROMIUM
+# CHROME / CHROMIUM — remove TODOS os locais possíveis
 # =====================================================================
-rm -f /etc/opt/chrome/policies/managed/policies.json 2>/dev/null || true
-rm -f /etc/opt/chromium/policies/managed/policies.json 2>/dev/null || true
+rm -rf /etc/opt/chrome/policies/managed      2>/dev/null
+rm -rf /etc/opt/chromium/policies/managed    2>/dev/null
+rm -rf /etc/chromium/policies/managed        2>/dev/null
 
 # =====================================================================
-# MATA OS NAVEGADORES
+# MATA OS NAVEGADORES (para forçar releitura das policies)
 # =====================================================================
-pkill -9 firefox 2>/dev/null || true
-pkill -9 chrome 2>/dev/null || true
-pkill -9 google-chrome 2>/dev/null || true
-pkill -9 chromium 2>/dev/null || true
+USUARIOS_HUMANOS=$(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd)
+
+# TERM (educado)
+for u in $USUARIOS_HUMANOS; do
+    sudo -u "$u" pkill -TERM firefox   2>/dev/null
+    sudo -u "$u" pkill -TERM chrome    2>/dev/null
+    sudo -u "$u" pkill -TERM chromium  2>/dev/null
+done
+
+pkill -TERM firefox   2>/dev/null
+pkill -TERM chrome    2>/dev/null
+pkill -TERM chromium  2>/dev/null
+
+sleep 2
+
+# KILL (forçado)
+for u in $USUARIOS_HUMANOS; do
+    sudo -u "$u" pkill -KILL firefox   2>/dev/null
+    sudo -u "$u" pkill -KILL chrome    2>/dev/null
+    sudo -u "$u" pkill -KILL chromium  2>/dev/null
+done
+
+pkill -KILL firefox   2>/dev/null
+pkill -KILL chrome    2>/dev/null
+pkill -KILL chromium  2>/dev/null
 
 echo "[$(date '+%F %T')] UNBLOCK concluído" >> "$LOG"
 exit 0
