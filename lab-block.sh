@@ -1,11 +1,11 @@
 #!/bin/bash
 # =====================================================================
 #  lab-block.sh
-#  v6.3.0
+#  v6.5.0
 #
 #  Ativa o modo prova:
 #    - Bloqueia Firefox (Snap ou .deb)
-#    - Bloqueia Chrome / Chromium
+#    - Bloqueia Chrome / Chromium (formato correto de URLAllowlist)
 #    - Fecha os navegadores
 #    - Abre o Firefox no JUDE automaticamente
 #    - Desativa avisos de "site de risco"
@@ -23,7 +23,7 @@ URL_JUDE="https://jude.dcc.ufba.br/auth/login"
 echo "[$(date '+%F %T')] host=$(hostname) BLOCK" >> "$LOG"
 
 # =====================================================================
-# FIREFOX — policies (com safebrowsing desativado)
+# FIREFOX — policies
 # =====================================================================
 FIREFOX_POLICIES='{
   "policies": {
@@ -57,30 +57,11 @@ FIREFOX_POLICIES='{
       "Notifications": { "BlockNewRequests": true }
     },
     "Preferences": {
-      "browser.safebrowsing.malware.enabled": {
-        "Value": false,
-        "Status": "locked"
-      },
-      "browser.safebrowsing.phishing.enabled": {
-        "Value": false,
-        "Status": "locked"
-      },
-      "browser.safebrowsing.downloads.enabled": {
-        "Value": false,
-        "Status": "locked"
-      },
-      "browser.safebrowsing.downloads.remote.enabled": {
-        "Value": false,
-        "Status": "locked"
-      },
-      "security.certerrors.mitm.auto_enable_enterprise_roots": {
-        "Value": true,
-        "Status": "locked"
-      },
-      "security.enterprise_roots.enabled": {
-        "Value": true,
-        "Status": "locked"
-      }
+      "browser.safebrowsing.malware.enabled": { "Value": false, "Status": "locked" },
+      "browser.safebrowsing.phishing.enabled": { "Value": false, "Status": "locked" },
+      "browser.safebrowsing.downloads.enabled": { "Value": false, "Status": "locked" },
+      "browser.safebrowsing.downloads.remote.enabled": { "Value": false, "Status": "locked" },
+      "security.certerrors.mitm.auto_enable_enterprise_roots": { "Value": true, "Status": "locked" }
     }
   }
 }'
@@ -102,13 +83,13 @@ if [ -f /usr/lib/firefox/firefox ] || [ -f /usr/lib/firefox/firefox.sh ]; then
 fi
 
 # =====================================================================
-# CHROME — policies (com safebrowsing desativado também)
+# CHROME — policies (FORMATO CORRETO)
 # =====================================================================
 CHROME_POLICIES='{
   "URLBlocklist": ["*"],
   "URLAllowlist": [
-    "https://jude.dcc.ufba.br/*",
-    "https://*.dcc.ufba.br/*"
+    "jude.dcc.ufba.br",
+    "*.dcc.ufba.br"
   ],
   "DeveloperToolsAvailability": 2,
   "IncognitoModeAvailability": 1,
