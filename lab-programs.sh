@@ -1,10 +1,10 @@
 #!/bin/bash
 # =====================================================================
 #  lab-programs.sh
-#  v3.0.0
+#  v4.0.0
 #
 #  Instala todos os programas do laboratório.
-#  Inclui openssh-server.
+#  Inclui openssh-server e Firefox .deb.
 # =====================================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -453,9 +453,121 @@ if ! dpkg -l | grep -q frame0; then
 fi
 
 # =====================================================================
+# 38) FIREFOX — remover Snap e instalar .deb
+# =====================================================================
+echo ""
+echo "=================================================="
+echo " FIREFOX: Removendo Snap e instalando .deb"
+echo "=================================================="
+
+# 38.1) Fecha qualquer Firefox aberto
+pkill -9 firefox 2>/dev/null || true
+sleep 1
+
+# 38.2) Remove o Snap do Firefox (se existir)
+if snap list firefox &>/dev/null; then
+    echo "==> Removendo Firefox Snap..."
+    snap remove firefox || true
+    sleep 2
+else
+    echo "==> Firefox Snap não está instalado"
+fi
+
+# 38.3) Bloqueia a reinstalação automática do Snap
+echo "==> Bloqueando reinstalação automática do Snap..."
+mkdir -p /etc/apt/preferences.d
+cat > /etc/apt/preferences.d/firefox-no-snap <<'EOF'
+Package: firefox*
+Pin: release o=Ubuntu*
+Pin-Priority: -1
+EOF
+
+# 38.4) Adiciona o PPA da Mozilla (Firefox .deb)
+echo "==> Adicionando PPA da Mozilla..."
+add-apt-repository -y ppa:mozillateam/ppa
+apt-get update -y
+
+# 38.5) Prioriza o .deb do PPA sobre qualquer outro
+cat > /etc/apt/preferences.d/mozilla-firefox <<'EOF'
+Package: firefox*
+Pin: release o=LP-PPA-mozillateam
+Pin-Priority: 1001
+EOF
+
+# 38.6) Instala o Firefox .deb
+echo "==> Instalando Firefox .deb..."
+apt-get install -y firefox --allow-downgrades
+
+# 38.7) Confirma
+if command -v firefox &>/dev/null; then
+    FIREFOX_PATH=$(readlink -f $(which firefox))
+    if echo "$FIREFOX_PATH" | grep -q "/snap/"; then
+        echo "[AVISO] Firefox ainda é Snap: $FIREFOX_PATH"
+    else
+        echo "[SUCESSO] Firefox é .deb: $FIREFOX_PATH"
+    fi
+else
+    echo "[ERRO] Firefox não encontrado"
+fi
+
+# =====================================================================
+# 39) FIREFOX — atalho na barra lateral (dock)
+# =====================================================================
+echo "==> Criando atalho do Firefox na barra lateral..."
+
+# 39.1) Garante que o .desktop existe
+if [ ! -f /usr/share/applications/firefox.desktop ]; then
+    cat > /usr/share/applications/firefox.desktop <<'EOF'
+[Desktop Entry]
+Version=1.0
+Name=Firefox
+Name[pt_BR]=Firefox
+Comment=Navegador Web
+Comment[pt_BR]=Navegador Web
+Exec=/usr/bin/firefox %u
+Terminal=false
+Type=Application
+Icon=firefox
+Categories=Network;WebBrowser;
+MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;
+StartupNotify=true
+Actions=new-window;new-private-window;
+EOF
+    chmod 644 /usr/share/applications/firefox.desktop
+fi
+
+# 39.2) Adiciona o Firefox aos favoritos do aluno
+#      (aplica no perfil do aluno se ele existir)
+if [ -d "/home/aluno" ]; then
+    sudo -u aluno dbus-launch dconf write /org/gnome/shell/favorite-apps \
+        "['firefox.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop']" \
+        2>/dev/null || true
+    echo "==> Atalho adicionado para o aluno"
+fi
+
+# 39.3) Cria script para aplicar o atalho a cada login
+#      (para o aluno também pegar sempre)
+cat > /etc/profile.d/firefox-dock.sh <<'EOF'
+#!/bin/bash
+# Adiciona o Firefox na dock a cada login
+if [ -n "$DISPLAY" ] && command -v dbus-launch &>/dev/null; then
+    dbus-launch dconf write /org/gnome/shell/favorite-apps \
+        "['firefox.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop']" \
+        2>/dev/null || true
+fi
+EOF
+chmod 644 /etc/profile.d/firefox-dock.sh
+
+echo "[SUCESSO] Atalho do Firefox configurado"
+
+# =====================================================================
 # FIM
 # =====================================================================
 echo ""
 echo "=================================================="
 echo " ✅ Instalação de programas concluída"
 echo "=================================================="
+echo ""
+echo "Firefox:"
+readlink -f $(which firefox) 2>/dev/null || echo "  (não instalado)"
+echo ""
