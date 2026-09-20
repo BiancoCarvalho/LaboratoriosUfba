@@ -1,12 +1,13 @@
 #!/bin/bash
 # =====================================================================
 #  lab-block.sh
-#  v6.0.0
+#  v6.2.0
 #
 #  Ativa o modo prova:
 #    - Bloqueia Firefox (Snap ou .deb)
-#    - Bloqueia Chrome
-#    - Mata os navegadores para forçar releitura das policies
+#    - Bloqueia Chrome / Chromium
+#    - Fecha os navegadores
+#    - Abre o Firefox no JUDE automaticamente
 #
 #  Localização: /usr/local/sbin/lab-block.sh
 #  Uso: sudo /usr/local/sbin/lab-block.sh
@@ -15,11 +16,13 @@
 set -e
 
 LOG="/var/log/lab.log"
+USUARIO_LOGADO="aluno"
+URL_JUDE="https://jude.dcc.ufba.br/auth/login"
 
 echo "[$(date '+%F %T')] host=$(hostname) BLOCK" >> "$LOG"
 
 # =====================================================================
-# FIREFOX
+# FIREFOX — policies
 # =====================================================================
 FIREFOX_POLICIES='{
   "policies": {
@@ -50,24 +53,24 @@ FIREFOX_POLICIES='{
   }
 }'
 
-# Aplica no Firefox Snap
+# Firefox Snap
 if [ -d /snap/firefox ] || snap list firefox &>/dev/null; then
     mkdir -p /var/snap/firefox/common/policies
     echo "$FIREFOX_POLICIES" > /var/snap/firefox/common/policies/policies.json
     chmod 644 /var/snap/firefox/common/policies/policies.json
-    echo "[$(date '+%F %T')] Firefox Snap policies aplicadas" >> "$LOG"
+    echo "[$(date '+%F %T')] Firefox Snap: policies aplicadas" >> "$LOG"
 fi
 
-# Aplica no Firefox .deb
+# Firefox .deb
 if [ -f /usr/lib/firefox/firefox ] || [ -f /usr/lib/firefox/firefox.sh ]; then
     mkdir -p /etc/firefox/policies
     echo "$FIREFOX_POLICIES" > /etc/firefox/policies/policies.json
     chmod 644 /etc/firefox/policies/policies.json
-    echo "[$(date '+%F %T')] Firefox .deb policies aplicadas" >> "$LOG"
+    echo "[$(date '+%F %T')] Firefox .deb: policies aplicadas" >> "$LOG"
 fi
 
 # =====================================================================
-# CHROME
+# CHROME — policies
 # =====================================================================
 CHROME_POLICIES='{
   "URLBlocklist": ["*"],
@@ -86,46 +89,64 @@ CHROME_POLICIES='{
   "PromotionalTabsEnabled": false,
   "DefaultBrowserSettingEnabled": false,
   "MetricsReportingEnabled": false,
-  "SafeBrowsingProtectionLevel": 0,
   "SyncDisabled": true,
   "BackgroundModeEnabled": false,
+  "TaskManagerEndProcessEnabled": false,
   "HomepageLocation": "https://jude.dcc.ufba.br/auth/login",
   "HomepageIsNewTabPage": false,
   "RestoreOnStartup": 4,
-  "RestoreOnStartupURLs": ["https://jude.dcc.ufba.br/auth/login"],
-  "TaskManagerEndProcessEnabled": false
+  "RestoreOnStartupURLs": ["https://jude.dcc.ufba.br/auth/login"]
 }'
 
-# Aplica no Chrome
+# Chrome
 if [ -d /opt/google/chrome ] || command -v google-chrome &>/dev/null; then
     mkdir -p /etc/opt/chrome/policies/managed
     echo "$CHROME_POLICIES" > /etc/opt/chrome/policies/managed/policies.json
     chmod 644 /etc/opt/chrome/policies/managed/policies.json
-    echo "[$(date '+%F %T')] Chrome policies aplicadas" >> "$LOG"
-
-    # Chrome via Snap (caso esteja instalado como snap em algumas máquinas)
-    if snap list chromium &>/dev/null; then
-        mkdir -p /etc/opt/chromium/policies/managed
-        echo "$CHROME_POLICIES" > /etc/opt/chromium/policies/managed/policies.json
-        chmod 644 /etc/opt/chromium/policies/managed/policies.json
-    fi
+    echo "[$(date '+%F %T')] Chrome: policies aplicadas" >> "$LOG"
 fi
 
-# Aplica no Chromium (caso exista)
+# Chromium
 if [ -d /usr/lib/chromium ] || command -v chromium &>/dev/null; then
     mkdir -p /etc/opt/chromium/policies/managed
     echo "$CHROME_POLICIES" > /etc/opt/chromium/policies/managed/policies.json
     chmod 644 /etc/opt/chromium/policies/managed/policies.json
-    echo "[$(date '+%F %T')] Chromium policies aplicadas" >> "$LOG"
+    echo "[$(date '+%F %T')] Chromium: policies aplicadas" >> "$LOG"
 fi
 
 # =====================================================================
-# MATA OS NAVEGADORES (para forçar releitura das policies)
+# FECHA OS NAVEGADORES EDUCADAMENTE
 # =====================================================================
+pkill -TERM firefox 2>/dev/null || true
+pkill -TERM chrome 2>/dev/null || true
+pkill -TERM google-chrome 2>/dev/null || true
+pkill -TERM chromium 2>/dev/null || true
+
+sleep 3
+
 pkill -9 firefox 2>/dev/null || true
 pkill -9 chrome 2>/dev/null || true
 pkill -9 google-chrome 2>/dev/null || true
 pkill -9 chromium 2>/dev/null || true
+
+sleep 1
+
+# =====================================================================
+# ABRE O FIREFOX NO JUDE (para o usuário logado)
+# =====================================================================
+# Detecta quem está logado graficamente
+USUARIO_LOGADO=$(who | grep "(:0)" | awk '{print $1}' | head -n1)
+
+if [ -z "$USUARIO_LOGADO" ]; then
+    USUARIO_LOGADO="aluno"
+fi
+
+echo "[$(date '+%F %T')] Abrindo Firefox no JUDE como $USUARIO_LOGADO" >> "$LOG"
+
+# Abre o Firefox com o JUDE como argumento
+sudo -u "$USUARIO_LOGADO" \
+    DISPLAY=:0 \
+    nohup firefox "$URL_JUDE" >/dev/null 2>&1 &
 
 echo "[$(date '+%F %T')] BLOCK concluído" >> "$LOG"
 exit 0
