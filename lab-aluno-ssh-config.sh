@@ -1,7 +1,7 @@
 #!/bin/bash
 # =====================================================================
 #  lab-aluno-ssh-config.sh
-#  v1.0.0
+#  v2.0.0
 #
 #  Configura SSH + chave + sudoers do aluno.
 #  Roda no boot (via lab-startup.sh).
@@ -41,6 +41,7 @@ systemctl start ssh  >/dev/null 2>&1 || true
 # 4) Sudoers
 cat > /etc/sudoers.d/aluno-ssh <<'EOF'
 aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block.sh
+aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block-sites.sh
 aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-unblock.sh
 aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-prova-install.sh
 EOF
