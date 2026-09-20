@@ -1,7 +1,7 @@
 #!/bin/bash
 # =====================================================================
 #  lab-aluno-config.sh
-#  v3.0.0
+#  v4.0.0
 #
 #  Configura o aluno no boot (roda como root).
 #  Cria o usuário, o .ssh com a chave, o sudoers e habilita o SSH.
@@ -50,6 +50,7 @@ systemctl start ssh  >/dev/null 2>&1 || true
 # =====================================================================
 cat > /etc/sudoers.d/aluno-ssh <<'EOF'
 aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block.sh
+aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block-sites.sh
 aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-unblock.sh
 aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-prova-install.sh
 EOF
