@@ -1,5 +1,5 @@
 echo '#!/bin/sh
-wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-startup.sh -O /tmp/startup.sh
+wget https://raw.githubusercontent.com/graco-ufba/lab-scripts/main/lab-startup.sh -O /tmp/startup.sh
 chmod a+x /tmp/startup.sh
 /tmp/startup.sh
 exit 0
