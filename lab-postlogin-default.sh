@@ -1,8 +1,12 @@
 #!/bin/bash
 # =====================================================================
 #  lab-postlogin-default.sh
-#  v1.0.0
-#  Vira /etc/gdm3/PostLogin/Default quando copiado pelo lab-startup.
+#  v2.0.0
+#
+#  Este arquivo é copiado pelo lab-startup.sh para:
+#      /etc/gdm3/PostLogin/Default
+#
+#  Ele roda A CADA LOGIN do usuário 'aluno'.
 # =====================================================================
 
 if [[ "$USER" == "aluno" ]]; then
@@ -45,6 +49,12 @@ EOF
     ln -sf /opt/VMs /home/$USER/VirtualBox
     ln -sf /opt/nand2tetris /home/$USER/nand2tetris
 
+    if [ -n "$DISPLAY" ] && command -v dbus-launch &>/dev/null; then
+        dbus-launch dconf write /org/gnome/shell/favorite-apps \
+            "['firefox.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop']" \
+            2>/dev/null || true
+    fi
+
     echo "DROP USER IF EXISTS 'aluno'@'localhost'; CREATE USER 'aluno'@'%' IDENTIFIED BY 'aluno'; GRANT ALL PRIVILEGES ON *.* TO 'aluno'@'%'; FLUSH PRIVILEGES;" | mysql -u root 2>/dev/null || true
 
     sudo -u postgres psql -c "DROP DATABASE IF EXISTS aluno;" 2>/dev/null || true
@@ -62,6 +72,9 @@ EOF
     if [ -f "$inventory_path/src/inventory.py" ]; then
         python3 $inventory_path/src/inventory.py $inventory_url &> /var/log/inventory.log
     fi
+
+    # Dispara a atualização dos scripts em background
+    nohup sudo /root/labstartup.sh > /var/log/lab-startup-login.log 2>&1 &
 fi
 
 exit 0
