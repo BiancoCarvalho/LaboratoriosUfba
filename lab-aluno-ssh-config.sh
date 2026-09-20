@@ -6,6 +6,7 @@
 #  Configura SSH + chave + sudoers do aluno.
 #  Roda no boot (via lab-startup.sh).
 #  NÃO depende de login gráfico.
+#  NÃO apaga o home.
 # =====================================================================
 
 export DEBIAN_FRONTEND=noninteractive
