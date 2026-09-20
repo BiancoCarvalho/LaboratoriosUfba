@@ -1,13 +1,16 @@
 #!/bin/bash
 # =====================================================================
 #  lab-startup.sh
-#  v10.0.0
+#  v11.0.0
 #
 #  Roda a cada boot (via labstartup.service).
 #  Garante que:
 #    1) Os scripts são baixados do GitHub
 #    2) Se houver mudança, são aplicados
-#    3) As policies estão sempre aplicadas
+#    3) Os usuários (aluno, labadmin) estão configurados
+#
+#  ⚠️ NÃO reaplica bloqueio cegamente.
+#     O bloqueio é controlado pelo servidor (ReservaMonitorService).
 #
 #  Roda em modo "fail-safe": nunca para por erro.
 # =====================================================================
@@ -18,12 +21,12 @@ REPO="https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main"
 DIR="/usr/local/sbin"
 LOG="/var/log/lab.log"
 
-# Nunca para por erro (garante que termina o trabalho)
+# Nunca para por erro
 set +e
 
 echo "" >> "$LOG"
 echo "[$(date '+%F %T')] ================================================" >> "$LOG"
-echo "[$(date '+%F %T')] LAB-STARTUP INICIADO" >> "$LOG"
+echo "[$(date '+%F %T')] LAB-STARTUP INICIADO (v11.0.0)" >> "$LOG"
 echo "[$(date '+%F %T')] ================================================" >> "$LOG"
 
 SCRIPTS="
@@ -38,6 +41,7 @@ lab-admin-profile-config.sh
 lab-labadmin-config.sh
 lab-prova-install.sh
 lab-block.sh
+lab-block-sites.sh
 lab-unblock.sh
 lab-postlogin-default.sh
 labadmin.pub
@@ -138,7 +142,8 @@ if [ "$DONE" = "false" ]; then
         lab-program-config.sh \
         lab-inventory.sh \
         lab-admin-profile-config.sh \
-        lab-labadmin-config.sh
+        lab-labadmin-config.sh \
+        lab-prova-install.sh
     do
         if [ -f "$DIR/$script" ]; then
             echo "[$(date '+%F %T')] Executando $script..." >> "$LOG"
@@ -158,41 +163,12 @@ else
 fi
 
 # =====================================================================
-# 5) SEMPRE VERIFICA SE AS POLICIES ESTÃO APLICADAS
+# 5) NÃO REAPLICA BLOQUEIO AUTOMATICAMENTE
+#    O controle é feito pelo servidor via ReservaMonitorService.
+#    Se você reiniciar a máquina no meio de uma reserva ativa, o
+#    servidor irá reaplicar o bloqueio no próximo ciclo (30s).
 # =====================================================================
-if [ -f "$DIR/lab-block.sh" ]; then
-    FALTA_POLICY=false
-
-    # Firefox .deb
-    if command -v firefox &>/dev/null; then
-        if [ ! -f /etc/firefox/policies/policies.json ] && \
-           [ ! -f /usr/lib/firefox/distribution/policies.json ]; then
-            FALTA_POLICY=true
-        fi
-    fi
-
-    # Firefox Snap
-    if [ -d /snap/firefox ]; then
-        if [ ! -f /var/snap/firefox/common/policies/policies.json ]; then
-            FALTA_POLICY=true
-        fi
-    fi
-
-    # Chrome
-    if command -v google-chrome &>/dev/null; then
-        if [ ! -f /etc/opt/chrome/policies/managed/policies.json ]; then
-            FALTA_POLICY=true
-        fi
-    fi
-
-    if [ "$FALTA_POLICY" = true ]; then
-        echo "[$(date '+%F %T')] Policies faltando. Reaplicando com lab-block.sh..." >> "$LOG"
-        echo "==> Policies faltando, reaplicando..."
-        "$DIR/lab-block.sh" 2>&1 | tee -a "$LOG" || true
-    else
-        echo "[$(date '+%F %T')] Policies OK" >> "$LOG"
-    fi
-fi
+echo "[$(date '+%F %T')] Bloqueio NÃO reaplicado automaticamente (controlado pelo servidor)" >> "$LOG"
 
 # =====================================================================
 # 6) GARANTE QUE O labstartup.service ESTÁ HABILITADO
