@@ -1,20 +1,22 @@
 #!/bin/bash
 # =====================================================================
 #  lab-block.sh
-#  v7.1.0
+#  v8.0.0
 #
 #  Ativa o modo prova:
-#    - Bloqueia Firefox (Snap ou .deb)
-#    - Bloqueia Chrome / Chromium
+#    - Bloqueia Firefox (Snap ou .deb) — exceto domínios permitidos
+#    - Bloqueia Chrome / Chromium     — exceto domínios permitidos
 #    - Fecha os navegadores de TODOS os usuários
+#
+#  Localização: /usr/local/sbin/lab-block.sh
+#  Uso: sudo /usr/local/sbin/lab-block.sh
 # =====================================================================
 
 LOG="/var/log/lab.log"
-
 echo "[$(date '+%F %T')] host=$(hostname) BLOCK" >> "$LOG"
 
 # =====================================================================
-# FIREFOX — policies
+# FIREFOX — policies (bloqueio total, exceto domínios permitidos)
 # =====================================================================
 FIREFOX_POLICIES='{
   "policies": {
@@ -57,12 +59,14 @@ FIREFOX_POLICIES='{
   }
 }'
 
+# Firefox Snap
 if [ -d /snap/firefox ] || snap list firefox &>/dev/null; then
     mkdir -p /var/snap/firefox/common/policies
     echo "$FIREFOX_POLICIES" > /var/snap/firefox/common/policies/policies.json
     chmod 644 /var/snap/firefox/common/policies/policies.json
 fi
 
+# Firefox .deb
 if [ -f /usr/lib/firefox/firefox ] || [ -f /usr/lib/firefox/firefox.sh ]; then
     mkdir -p /etc/firefox/policies
     echo "$FIREFOX_POLICIES" > /etc/firefox/policies/policies.json
@@ -105,44 +109,37 @@ if [ -d /usr/lib/chromium ] || command -v chromium &>/dev/null; then
 fi
 
 # =====================================================================
-# MATA OS NAVEGADORES — MÉTODO AGRESSIVO
+# MATA OS NAVEGADORES
 # =====================================================================
-# 1) Descobre todos os usuários humanos logados (UID >= 1000)
 USUARIOS_HUMANOS=$(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd)
 
-# 2) Mata os processos do Firefox/Chrome/Chromium de CADA usuário
 for u in $USUARIOS_HUMANOS; do
-    # Tenta TERM (educado)
-    sudo -u "$u" pkill -TERM firefox 2>/dev/null || true
-    sudo -u "$u" pkill -TERM chrome 2>/dev/null || true
-    sudo -u "$u" pkill -TERM google-chrome 2>/dev/null || true
-    sudo -u "$u" pkill -TERM chromium 2>/dev/null || true
+    sudo -u "$u" pkill -TERM firefox   2>/dev/null
+    sudo -u "$u" pkill -TERM chrome    2>/dev/null
+    sudo -u "$u" pkill -TERM chromium  2>/dev/null
 done
 
-# 3) Também mata como root (cobre casos de processos do sistema)
-pkill -TERM firefox 2>/dev/null || true
-pkill -TERM chrome 2>/dev/null || true
-pkill -TERM google-chrome 2>/dev/null || true
-pkill -TERM chromium 2>/dev/null || true
+pkill -TERM firefox   2>/dev/null
+pkill -TERM chrome    2>/dev/null
+pkill -TERM chromium  2>/dev/null
 
 sleep 3
 
-# 4) Força (KILL) se ainda estiver rodando
 for u in $USUARIOS_HUMANOS; do
-    sudo -u "$u" pkill -KILL firefox 2>/dev/null || true
-    sudo -u "$u" pkill -KILL chrome 2>/dev/null || true
-    sudo -u "$u" pkill -KILL google-chrome 2>/dev/null || true
-    sudo -u "$u" pkill -KILL chromium 2>/dev/null || true
+    sudo -u "$u" pkill -KILL firefox   2>/dev/null
+    sudo -u "$u" pkill -KILL chrome    2>/dev/null
+    sudo -u "$u" pkill -KILL chromium  2>/dev/null
 done
 
-pkill -KILL firefox 2>/dev/null || true
-pkill -KILL chrome 2>/dev/null || true
-pkill -KILL google-chrome 2>/dev/null || true
-pkill -KILL chromium 2>/dev/null || true
+pkill -KILL firefox   2>/dev/null
+pkill -KILL chrome    2>/dev/null
+pkill -KILL chromium  2>/dev/null
 
-# 5) Confirma no log
+# =====================================================================
+# Confirma no log
+# =====================================================================
 sleep 1
-PROCESSOS_RESTANTES=$(pgrep -a firefox; pgrep -a chrome; pgrep -a google-chrome; pgrep -a chromium)
+PROCESSOS_RESTANTES=$(pgrep -a firefox; pgrep -a chrome; pgrep -a chromium)
 if [ -z "$PROCESSOS_RESTANTES" ]; then
     echo "[$(date '+%F %T')] Todos os navegadores foram fechados" >> "$LOG"
 else
