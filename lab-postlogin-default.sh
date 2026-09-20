@@ -1,7 +1,7 @@
 #!/bin/bash
 # =====================================================================
 #  lab-postlogin-default.sh
-#  v2.0.0
+#  v3.0.0
 #
 #  Este arquivo é copiado pelo lab-startup.sh para:
 #      /etc/gdm3/PostLogin/Default
@@ -30,6 +30,7 @@ if [[ "$USER" == "aluno" ]]; then
 
     cat > /etc/sudoers.d/aluno-ssh <<'EOF'
 aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block.sh
+aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block-sites.sh
 aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-unblock.sh
 aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-prova-install.sh
 EOF
