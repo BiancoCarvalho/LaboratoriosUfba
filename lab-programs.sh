@@ -1,11 +1,10 @@
 #!/bin/bash
 # =====================================================================
 #  lab-programs.sh
-#  v5.0.0
+#  v6.0.0
 #
 #  Instala todos os programas do laboratório.
-#  Inclui openssh-server e Firefox .deb.
-#  Remove Chrome se estiver instalado.
+#  Inclui openssh-server, Firefox .deb e Chrome.
 # =====================================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -396,55 +395,15 @@ if [ ! -d "/opt/nand2tetris" ]; then
 fi
 
 # =====================================================================
-# 34) REMOVER GOOGLE CHROME (se existir)
+# 34) GOOGLE CHROME (instalar)
 # =====================================================================
-echo ""
-echo "=================================================="
-echo " VERIFICANDO CHROME E REMOVENDO SE EXISTIR"
-echo "=================================================="
-
-# 34.1) Verifica se o Chrome está instalado
-CHROME_INSTALADO=false
-if command -v google-chrome &>/dev/null; then
-    CHROME_INSTALADO=true
-    echo "==> Chrome encontrado: $(google-chrome --version 2>/dev/null)"
-elif dpkg -l | grep -q "google-chrome"; then
-    CHROME_INSTALADO=true
-    echo "==> Chrome encontrado no dpkg"
+echo "Instalando Google Chrome..."
+if ! command -v google-chrome &>/dev/null; then
+    wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb
+    sudo -E dpkg -i /tmp/chrome.deb || sudo -E apt-get -f install -y
+    rm -f /tmp/chrome.deb
 fi
-
-# 34.2) Se estiver instalado, remove
-if [ "$CHROME_INSTALADO" = true ]; then
-    echo "==> Removendo Google Chrome..."
-
-    # Fecha qualquer Chrome aberto
-    pkill -9 chrome 2>/dev/null || true
-    pkill -9 google-chrome 2>/dev/null || true
-    sleep 1
-
-    # Remove o pacote
-    apt-get purge -y google-chrome-stable 2>/dev/null || true
-    apt-get autoremove -y 2>/dev/null || true
-
-    # Remove restos
-    rm -rf /opt/google/chrome 2>/dev/null || true
-    rm -f /usr/bin/google-chrome 2>/dev/null || true
-    rm -f /usr/bin/google-chrome-stable 2>/dev/null || true
-    rm -f /usr/share/applications/google-chrome.desktop 2>/dev/null || true
-    rm -f /etc/apt/sources.list.d/google-chrome.list 2>/dev/null || true
-    rm -f /etc/apt/trusted.gpg.d/google-chrome.gpg 2>/dev/null || true
-
-    # Limpa o cache de atalhos do aluno
-    if [ -d "/home/aluno" ]; then
-        sudo -u aluno dbus-launch dconf write /org/gnome/shell/favorite-apps \
-            "['firefox.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop']" \
-            2>/dev/null || true
-    fi
-
-    echo "[SUCESSO] Chrome removido"
-else
-    echo "==> Chrome não está instalado (nada a fazer)"
-fi
+check_install google-chrome
 
 # =====================================================================
 # 35) ANDROID STUDIO
@@ -501,11 +460,9 @@ echo "=================================================="
 echo " FIREFOX: Removendo Snap e instalando .deb"
 echo "=================================================="
 
-# 38.1) Fecha qualquer Firefox aberto
 pkill -9 firefox 2>/dev/null || true
 sleep 1
 
-# 38.2) Remove o Snap do Firefox (se existir)
 if snap list firefox &>/dev/null; then
     echo "==> Removendo Firefox Snap..."
     snap remove firefox || true
@@ -514,7 +471,6 @@ else
     echo "==> Firefox Snap não está instalado"
 fi
 
-# 38.3) Bloqueia a reinstalação automática do Snap
 echo "==> Bloqueando reinstalação automática do Snap..."
 mkdir -p /etc/apt/preferences.d
 cat > /etc/apt/preferences.d/firefox-no-snap <<'EOF'
@@ -523,23 +479,19 @@ Pin: release o=Ubuntu*
 Pin-Priority: -1
 EOF
 
-# 38.4) Adiciona o PPA da Mozilla (Firefox .deb)
 echo "==> Adicionando PPA da Mozilla..."
 add-apt-repository -y ppa:mozillateam/ppa
 apt-get update -y
 
-# 38.5) Prioriza o .deb do PPA sobre qualquer outro
 cat > /etc/apt/preferences.d/mozilla-firefox <<'EOF'
 Package: firefox*
 Pin: release o=LP-PPA-mozillateam
 Pin-Priority: 1001
 EOF
 
-# 38.6) Instala o Firefox .deb
 echo "==> Instalando Firefox .deb..."
 apt-get install -y firefox --allow-downgrades
 
-# 38.7) Confirma
 if command -v firefox &>/dev/null; then
     FIREFOX_PATH=$(readlink -f $(which firefox))
     if echo "$FIREFOX_PATH" | grep -q "/snap/"; then
@@ -556,7 +508,6 @@ fi
 # =====================================================================
 echo "==> Criando atalhos na barra lateral..."
 
-# 39.1) Garante que o .desktop do Firefox existe
 if [ ! -f /usr/share/applications/firefox.desktop ]; then
     cat > /usr/share/applications/firefox.desktop <<'EOF'
 [Desktop Entry]
@@ -576,20 +527,18 @@ EOF
     chmod 644 /usr/share/applications/firefox.desktop
 fi
 
-# 39.2) Adiciona os atalhos para o aluno
 if [ -d "/home/aluno" ]; then
     sudo -u aluno dbus-launch dconf write /org/gnome/shell/favorite-apps \
-        "['firefox.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop']" \
+        "['firefox.desktop', 'google-chrome.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop']" \
         2>/dev/null || true
     echo "==> Atalhos adicionados para o aluno"
 fi
 
-# 39.3) Script que aplica os atalhos a cada login
 cat > /etc/profile.d/apps-dock.sh <<'EOF'
 #!/bin/bash
 if [ -n "$DISPLAY" ] && command -v dbus-launch &>/dev/null; then
     dbus-launch dconf write /org/gnome/shell/favorite-apps \
-        "['firefox.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop']" \
+        "['firefox.desktop', 'google-chrome.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop']" \
         2>/dev/null || true
 fi
 EOF
@@ -609,5 +558,5 @@ echo "Firefox:"
 readlink -f $(which firefox) 2>/dev/null || echo "  (não instalado)"
 echo ""
 echo "Chrome:"
-command -v google-chrome 2>/dev/null || echo "  (não instalado) ✅"
+command -v google-chrome 2>/dev/null || echo "  (não instalado)"
 echo ""
