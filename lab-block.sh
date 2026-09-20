@@ -1,13 +1,14 @@
 #!/bin/bash
 # =====================================================================
 #  lab-block.sh
-#  v6.2.0
+#  v6.3.0
 #
 #  Ativa o modo prova:
 #    - Bloqueia Firefox (Snap ou .deb)
 #    - Bloqueia Chrome / Chromium
 #    - Fecha os navegadores
 #    - Abre o Firefox no JUDE automaticamente
+#    - Desativa avisos de "site de risco"
 #
 #  Localização: /usr/local/sbin/lab-block.sh
 #  Uso: sudo /usr/local/sbin/lab-block.sh
@@ -22,7 +23,7 @@ URL_JUDE="https://jude.dcc.ufba.br/auth/login"
 echo "[$(date '+%F %T')] host=$(hostname) BLOCK" >> "$LOG"
 
 # =====================================================================
-# FIREFOX — policies
+# FIREFOX — policies (com safebrowsing desativado)
 # =====================================================================
 FIREFOX_POLICIES='{
   "policies": {
@@ -46,9 +47,40 @@ FIREFOX_POLICIES='{
     "OverridePostUpdatePage": "",
     "NoDefaultBookmarks": true,
     "DisableProfileImport": true,
+    "DisableSafeBrowsing": true,
+    "DisableSecurityBypass": {
+      "InvalidCertificate": true,
+      "SafeBrowsing": true
+    },
     "Permissions": {
       "Location": { "BlockNewRequests": true },
       "Notifications": { "BlockNewRequests": true }
+    },
+    "Preferences": {
+      "browser.safebrowsing.malware.enabled": {
+        "Value": false,
+        "Status": "locked"
+      },
+      "browser.safebrowsing.phishing.enabled": {
+        "Value": false,
+        "Status": "locked"
+      },
+      "browser.safebrowsing.downloads.enabled": {
+        "Value": false,
+        "Status": "locked"
+      },
+      "browser.safebrowsing.downloads.remote.enabled": {
+        "Value": false,
+        "Status": "locked"
+      },
+      "security.certerrors.mitm.auto_enable_enterprise_roots": {
+        "Value": true,
+        "Status": "locked"
+      },
+      "security.enterprise_roots.enabled": {
+        "Value": true,
+        "Status": "locked"
+      }
     }
   }
 }'
@@ -70,7 +102,7 @@ if [ -f /usr/lib/firefox/firefox ] || [ -f /usr/lib/firefox/firefox.sh ]; then
 fi
 
 # =====================================================================
-# CHROME — policies
+# CHROME — policies (com safebrowsing desativado também)
 # =====================================================================
 CHROME_POLICIES='{
   "URLBlocklist": ["*"],
@@ -89,6 +121,7 @@ CHROME_POLICIES='{
   "PromotionalTabsEnabled": false,
   "DefaultBrowserSettingEnabled": false,
   "MetricsReportingEnabled": false,
+  "SafeBrowsingProtectionLevel": 0,
   "SyncDisabled": true,
   "BackgroundModeEnabled": false,
   "TaskManagerEndProcessEnabled": false,
@@ -115,7 +148,7 @@ if [ -d /usr/lib/chromium ] || command -v chromium &>/dev/null; then
 fi
 
 # =====================================================================
-# FECHA OS NAVEGADORES EDUCADAMENTE
+# FECHA OS NAVEGADORES
 # =====================================================================
 pkill -TERM firefox 2>/dev/null || true
 pkill -TERM chrome 2>/dev/null || true
@@ -132,9 +165,8 @@ pkill -9 chromium 2>/dev/null || true
 sleep 1
 
 # =====================================================================
-# ABRE O FIREFOX NO JUDE (para o usuário logado)
+# ABRE O FIREFOX NO JUDE
 # =====================================================================
-# Detecta quem está logado graficamente
 USUARIO_LOGADO=$(who | grep "(:0)" | awk '{print $1}' | head -n1)
 
 if [ -z "$USUARIO_LOGADO" ]; then
@@ -143,7 +175,6 @@ fi
 
 echo "[$(date '+%F %T')] Abrindo Firefox no JUDE como $USUARIO_LOGADO" >> "$LOG"
 
-# Abre o Firefox com o JUDE como argumento
 sudo -u "$USUARIO_LOGADO" \
     DISPLAY=:0 \
     nohup firefox "$URL_JUDE" >/dev/null 2>&1 &
