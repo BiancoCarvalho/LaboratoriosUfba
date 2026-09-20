@@ -1,7 +1,10 @@
 #!/bin/bash
 # =====================================================================
 #  lab-startup.sh
-#  v7.0.0
+#  v8.0.0
+#
+#  Roda a cada boot (via labstartup.service).
+#  Baixa os scripts do repo e atualiza o PostLogin/Default.
 # =====================================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -22,6 +25,7 @@ lab-labadmin-config.sh
 lab-prova-install.sh
 lab-block.sh
 lab-unblock.sh
+lab-postlogin-default.sh
 labadmin.pub
 labsecurity-agent.sh
 "
@@ -58,7 +62,19 @@ if [ "$DONE" = "false" ]; then
     chmod 755 "$DIR"/lab-*.sh 2>/dev/null || true
     chmod 644 "$DIR/labadmin.pub" 2>/dev/null || true
 
+    # ================================================================
+    # Copia o lab-postlogin-default.sh para /etc/gdm3/PostLogin/Default
+    # ================================================================
+    if [ -f "$DIR/lab-postlogin-default.sh" ]; then
+        mkdir -p /etc/gdm3/PostLogin
+        cp "$DIR/lab-postlogin-default.sh" /etc/gdm3/PostLogin/Default
+        chmod a+x /etc/gdm3/PostLogin/Default
+        echo "==> /etc/gdm3/PostLogin/Default atualizado"
+    fi
+
+    # ================================================================
     # Executa os scripts
+    # ================================================================
     [ -f "$DIR/lab-profile-config.sh" ]       && "$DIR/lab-profile-config.sh"       || true
     [ -f "$DIR/lab-aluno-config.sh" ]         && "$DIR/lab-aluno-config.sh"         || true
     [ -f "$DIR/lab-aluno-ssh-config.sh" ]     && "$DIR/lab-aluno-ssh-config.sh"     || true
