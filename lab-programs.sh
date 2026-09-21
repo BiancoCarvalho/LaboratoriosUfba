@@ -1,7 +1,7 @@
 #!/bin/bash
 # =====================================================================
 #  lab-programs.sh
-#  v8.0.1
+#  v8.0.2
 #
 #  Instala todos os programas do laboratório.
 #  Cada programa tem um SELO em /usr/local/sbin/.lab-state/NOME.
@@ -12,6 +12,18 @@
 #  IDEMPOTENTE: limpa resíduos antes de instalar.
 #
 #  v8.0.1: Firefox agora é instalado via SNAP (método .deb/PPA removido).
+#  v8.0.2: Correções para os programas que falhavam:
+#          - wine: usa "wine" (não "wine64")
+#          - clamav: trata freshclam sem travar
+#          - jupyter: usa pip3 com fallback
+#          - avra: fallback se SourceForge falhar
+#          - pgadmin: instala via pip/venv (repo oficial morreu)
+#          - mysql-workbench: usa snap (URL oficial morreu)
+#          - simulide: fallback GitHub (link Mega morreu)
+#          - nodejs: retry + fallback
+#          - r-rstudio: instala gdebi antes
+#          - unityhub: retry
+#          - mongodb: pula se snap mongo33 já existir
 # =====================================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -97,7 +109,7 @@ instalar_quarto() {
     local URL="https://github.com/quarto-dev/quarto-cli/releases/download/v${V}/quarto-${V}-linux-amd64.deb"
 
     rm -f /tmp/quarto.deb
-    wget -O /tmp/quarto.deb "$URL" || return 1
+    wget --timeout=60 --tries=2 -O /tmp/quarto.deb "$URL" || return 1
     [ -s /tmp/quarto.deb ] || return 1
 
     dpkg -i /tmp/quarto.deb || apt-get -f install -y
@@ -118,11 +130,14 @@ instalar_system_update() {
 }
 
 # =====================================================================
-# 5) ClamAV
+# 5) ClamAV (v8.0.2 — trata freshclam sem travar)
 # =====================================================================
 instalar_clamav() {
     apt-get install -y clamav freshclam clamtk || return 1
-    freshclam || true
+
+    # freshclam em background com timeout pra não travar o script
+    timeout 300 freshclam 2>/dev/null || true
+
     command -v clamscan &>/dev/null
 }
 
@@ -141,10 +156,16 @@ instalar_remover_termius() {
 }
 
 # =====================================================================
-# 7) Jupyter
+# 7) Jupyter (v8.0.2 — usa pip3 com fallback)
 # =====================================================================
 instalar_jupyter() {
-    pip install jupyter -q
+    apt-get install -y python3-pip python3-venv 2>/dev/null || true
+
+    pip3 install --break-system-packages jupyter -q 2>/dev/null || \
+        pip3 install jupyter -q 2>/dev/null || \
+        pip install jupyter -q 2>/dev/null || \
+        python3 -m pip install jupyter -q 2>/dev/null || return 1
+
     command -v jupyter &>/dev/null
 }
 
@@ -155,7 +176,6 @@ instalar_docker() {
     apt-get install -y ca-certificates curl gnupg lsb-release
     mkdir -p /etc/apt/keyrings
 
-    # Limpa TUDO antes
     rm -f /etc/apt/keyrings/docker.gpg
     rm -f /etc/apt/sources.list.d/docker.list
 
@@ -175,22 +195,35 @@ instalar_docker() {
 }
 
 # =====================================================================
-# 9) AVRA (limpa /tmp antes)
+# 9) AVRA (v8.0.2 — com fallback)
 # =====================================================================
 instalar_avra() {
-    apt-get install -y build-essential wget bzip2
+    apt-get install -y build-essential wget bzip2 || return 1
 
-    rm -rf /tmp/avra-1.3.0 /tmp/avra-1.3.0.tar.bz2
+    rm -rf /tmp/avra-1.3.0 /tmp/avra-1.3.0.tar.bz2 /tmp/avra-1.3.0.tar.gz
     cd /tmp || return 1
 
-    wget -q https://downloads.sourceforge.net/project/avra/1.3.0/avra-1.3.0.tar.bz2 || return 1
-    [ -s avra-1.3.0.tar.bz2 ] || return 1
+    wget -q --timeout=30 --tries=3 \
+        https://downloads.sourceforge.net/project/avra/1.3.0/avra-1.3.0.tar.bz2 \
+        -O avra-1.3.0.tar.bz2 2>/dev/null || \
+    wget -q --timeout=30 --tries=3 \
+        https://github.com/Ro5bert/avra/archive/refs/tags/1.3.0.tar.gz \
+        -O avra-1.3.0.tar.gz 2>/dev/null || return 1
 
-    tar -xjf avra-1.3.0.tar.bz2 || return 1
-    cd avra-1.3.0 || return 1
+    if [ -s avra-1.3.0.tar.bz2 ]; then
+        tar -xjf avra-1.3.0.tar.bz2 || return 1
+        cd avra-1.3.0 || return 1
+    elif [ -s avra-1.3.0.tar.gz ]; then
+        tar -xzf avra-1.3.0.tar.gz || return 1
+        cd avra-1.3.0 || return 1
+    else
+        return 1
+    fi
+
     make || return 1
     make install
     cd / || return 1
+    rm -rf /tmp/avra-1.3.0*
 
     command -v avra &>/dev/null
 }
@@ -204,7 +237,7 @@ instalar_ollama() {
 }
 
 # =====================================================================
-# 11) Sublime Text (limpa chave antes)
+# 11) Sublime Text
 # =====================================================================
 instalar_sublime() {
     rm -f /usr/share/keyrings/sublime-text-archive-keyring.gpg
@@ -230,10 +263,9 @@ instalar_neofetch() {
 }
 
 # =====================================================================
-# 13) VS Code (limpa list/sources antes)
+# 13) VS Code
 # =====================================================================
 instalar_vscode() {
-    # Limpa QUALQUER resíduo do VS Code
     rm -f /etc/apt/sources.list.d/vscode.list
     rm -f /etc/apt/sources.list.d/vscode.sources
     rm -f /etc/apt/sources.list.d/*vscode*
@@ -291,11 +323,12 @@ instalar_octave() {
 # =====================================================================
 instalar_racket() {
     local LATEST_URL
-    LATEST_URL=$(curl -s https://download.racket-lang.org/ | grep -oP 'https://[^"]+linux-x64.sh' | head -n 1 || true)
+    LATEST_URL=$(curl -s --max-time 20 https://download.racket-lang.org/ | \
+        grep -oP 'https://[^"]+linux-x64.sh' | head -n 1 || true)
 
     if [ -n "$LATEST_URL" ]; then
         rm -f /tmp/racket-install.sh
-        wget -O /tmp/racket-install.sh "$LATEST_URL" || return 1
+        wget --timeout=60 -O /tmp/racket-install.sh "$LATEST_URL" || return 1
         chmod +x /tmp/racket-install.sh
         /tmp/racket-install.sh --in-place --dest /opt/racket
         ln -sf /opt/racket/bin/racket /usr/local/bin/racket
@@ -315,7 +348,7 @@ instalar_swipl() {
 }
 
 # =====================================================================
-# 19) PostgreSQL 17 (limpa chave antes)
+# 19) PostgreSQL 17
 # =====================================================================
 instalar_postgresql() {
     rm -f /etc/apt/sources.list.d/pgdg.list
@@ -335,30 +368,48 @@ instalar_postgresql() {
 }
 
 # =====================================================================
-# 20) pgAdmin (limpa chave antes)
+# 20) pgAdmin (v8.0.2 — via pip/venv, repo oficial morreu)
 # =====================================================================
 instalar_pgadmin() {
     rm -f /usr/share/keyrings/packages-pgadmin-org.gpg
     rm -f /etc/apt/sources.list.d/pgadmin4.list
 
-    curl -fsS https://www.pgadmin.org/static/packages_pgadmin_org.pub | \
-        gpg --dearmor -o /usr/share/keyrings/packages-pgadmin-org.gpg || return 1
+    if curl -fsS --max-time 15 https://www.pgadmin.org/static/packages_pgadmin_org.pub | \
+        gpg --dearmor -o /usr/share/keyrings/packages-pgadmin-org.gpg 2>/dev/null; then
 
-    echo "deb [signed-by=/usr/share/keyrings/packages-pgadmin-org.gpg] https://ftp.postgresql.org/pub/pgadmin/pgadmin4/apt/$(lsb_release -cs) pgadmin4 main" \
-        > /etc/apt/sources.list.d/pgadmin4.list
+        echo "deb [signed-by=/usr/share/keyrings/packages-pgadmin-org.gpg] https://ftp.postgresql.org/pub/pgadmin/pgadmin4/apt/$(lsb_release -cs) pgadmin4 main" \
+            > /etc/apt/sources.list.d/pgadmin4.list
 
-    apt-get update -y
-    apt-get install -y pgadmin4-web pgadmin4-desktop
-    command -v pgadmin4 &>/dev/null || dpkg -l | grep -q pgadmin4
+        if apt-get update -y 2>/dev/null && \
+           apt-get install -y pgadmin4-web pgadmin4-desktop 2>/dev/null; then
+            command -v pgadmin4 &>/dev/null && return 0
+        fi
+    fi
+
+    echo "==> Repo oficial indisponível — instalando pgAdmin via pip/venv..."
+    apt-get install -y python3-pip python3-venv libpq-dev 2>/dev/null || return 1
+
+    rm -rf /opt/pgadmin4-venv
+    python3 -m venv /opt/pgadmin4-venv || return 1
+    /opt/pgadmin4-venv/bin/pip install --upgrade pip -q || true
+    /opt/pgadmin4-venv/bin/pip install pgadmin4 -q || return 1
+
+    ln -sf /opt/pgadmin4-venv/bin/pgadmin4 /usr/local/bin/pgadmin4
+    command -v pgadmin4 &>/dev/null
 }
 
 # =====================================================================
-# 21) MySQL Workbench
+# 21) MySQL Workbench (v8.0.2 — via snap, URL oficial morreu)
 # =====================================================================
 instalar_mysql_workbench() {
+    if snap install mysql-workbench-community 2>/dev/null; then
+        snap list mysql-workbench-community &>/dev/null && return 0
+    fi
+
     rm -f /tmp/mysql-workbench.deb
-    wget http://cdn.mysql.com/Downloads/MySQLGUITools/mysql-workbench-community_8.0.34-1ubuntu22.04_amd64.deb \
-        -O /tmp/mysql-workbench.deb || return 1
+    wget --timeout=30 --tries=2 \
+        http://cdn.mysql.com/Downloads/MySQLGUITools/mysql-workbench-community_8.0.34-1ubuntu22.04_amd64.deb \
+        -O /tmp/mysql-workbench.deb 2>/dev/null || return 1
 
     [ -s /tmp/mysql-workbench.deb ] || return 1
     dpkg -i /tmp/mysql-workbench.deb || apt-get -f install -y
@@ -384,23 +435,32 @@ instalar_greenfoot() {
 }
 
 # =====================================================================
-# 24) SimulIDE
+# 24) SimulIDE (v8.0.2 — fallback GitHub, link Mega morreu)
 # =====================================================================
 instalar_simulide() {
     apt-get install -y fuse libfuse2 libqt5core5a libqt5gui5 libqt5widgets5 libqt5network5 \
-        libqt5svg5 qtbase5-dev qttools5-dev-tools libqt5serialport5 libqt5serialport5-dev
+        libqt5svg5 qtbase5-dev qttools5-dev-tools libqt5serialport5 libqt5serialport5-dev 2>/dev/null || true
 
+    rm -f /tmp/SimulIDE.tar.gz /tmp/SimulIDE.tar.xz
+    cd /opt || return 1
+
+    wget -q --timeout=60 --tries=3 \
+        https://github.com/SimulIDE/SimulIDE/releases/download/1.1.0/SimulIDE_1.1.0-SR1_Lin64.tar.gz \
+        -O /tmp/SimulIDE.tar.gz 2>/dev/null || \
+    wget -q --timeout=60 --tries=3 \
+        "https://mega.nz/file/8akRDCYJ#8Fvn6U9RIJ-sX_f49fCsn05YTUr5ySNycoFlxVFX-iE" \
+        -O /tmp/SimulIDE.tar.gz 2>/dev/null || return 1
+
+    [ -s /tmp/SimulIDE.tar.gz ] || return 1
+
+    tar -xzf /tmp/SimulIDE.tar.gz -C /opt 2>/dev/null || \
+        tar -xzvf /tmp/SimulIDE.tar.gz -C /opt 2>/dev/null || return 1
+
+    chmod +x /opt/SimulIDE*/simulide 2>/dev/null
+    ln -sf /opt/SimulIDE*/simulide /usr/local/bin/simulide 2>/dev/null
     rm -f /tmp/SimulIDE.tar.gz
-    megadl "https://mega.nz/file/8akRDCYJ#8Fvn6U9RIJ-sX_f49fCsn05YTUr5ySNycoFlxVFX-iE" \
-        -o /tmp/SimulIDE.tar.gz || return 1
 
-    [ -f /tmp/SimulIDE.tar.gz ] || return 1
-
-    tar -xzvf /tmp/SimulIDE.tar.gz -C /opt || return 1
-    chmod +x /opt/SimulIDE_1.1.0-SR1_Lin64/simulide
-    ln -sf /opt/SimulIDE_1.1.0-SR1_Lin64/simulide /usr/local/bin/simulide
-    rm -f /tmp/SimulIDE.tar.gz
-    [ -x /usr/local/bin/simulide ]
+    command -v simulide &>/dev/null || [ -x /opt/SimulIDE_1.1.0-SR1_Lin64/simulide ]
 }
 
 # =====================================================================
@@ -413,17 +473,25 @@ instalar_arduino() {
 }
 
 # =====================================================================
-# 26) Wine
+# 26) Wine (v8.0.2 — "wine" em vez de "wine64")
 # =====================================================================
 instalar_wine() {
-    apt-get install -y wine64
+    apt-get install -y wine || \
+    apt-get install -y wine-stable || \
+    apt-get install -y wine64 || return 1
     command -v wine &>/dev/null
 }
 
 # =====================================================================
-# 27) MongoDB (limpa chave antes)
+# 27) MongoDB (v8.0.2 — pula se snap mongo33 já existir)
 # =====================================================================
 instalar_mongodb() {
+    if snap list mongo33 &>/dev/null; then
+        echo "==> Snap mongo33 já instalado — pulando mongodb-org"
+        systemctl start snap.mongo33.mongod 2>/dev/null || true
+        return 0
+    fi
+
     rm -f /usr/share/keyrings/mongodb-server-7.0.gpg
     rm -f /etc/apt/sources.list.d/mongodb-org-7.0.list
 
@@ -441,10 +509,10 @@ instalar_mongodb() {
 }
 
 # =====================================================================
-# 28) R e RStudio
+# 28) R e RStudio (v8.0.2 — instala gdebi antes)
 # =====================================================================
 instalar_r() {
-    apt-get install -y --no-install-recommends software-properties-common dirmngr
+    apt-get install -y --no-install-recommends software-properties-common dirmngr gdebi-core || return 1
 
     rm -f /etc/apt/trusted.gpg.d/cran_ubuntu_key.asc
     wget -qO- https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc | \
@@ -452,11 +520,12 @@ instalar_r() {
 
     add-apt-repository "deb https://cloud.r-project.org/bin/linux/ubuntu $(lsb_release -cs)-cran40/" -y
     apt-get update -y
-    apt-get install -y --no-install-recommends r-base r-base-dev
+    apt-get install -y --no-install-recommends r-base r-base-dev || return 1
 
     rm -f /tmp/rstudio.deb
-    wget https://download1.rstudio.org/electron/jammy/amd64/rstudio-2024.04.2-764-amd64.deb \
-        -O /tmp/rstudio.deb || true
+    wget --timeout=60 --tries=2 \
+        https://download1.rstudio.org/electron/jammy/amd64/rstudio-2024.04.2-764-amd64.deb \
+        -O /tmp/rstudio.deb 2>/dev/null || true
 
     if [ -s /tmp/rstudio.deb ]; then
         gdebi -n /tmp/rstudio.deb || apt-get -f install -y
@@ -466,7 +535,7 @@ instalar_r() {
 }
 
 # =====================================================================
-# 29) Node.js (limpa chave antes)
+# 29) Node.js (v8.0.2 — com retry)
 # =====================================================================
 instalar_nodejs() {
     mkdir -p /etc/apt/keyrings
@@ -474,18 +543,26 @@ instalar_nodejs() {
     rm -f /etc/apt/keyrings/nodesource.gpg
     rm -f /etc/apt/sources.list.d/nodesource.list
 
-    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | \
-        gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg || return 1
+    for i in 1 2 3; do
+        if curl -fsSL --max-time 20 --retry 3 https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | \
+            gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg 2>/dev/null; then
+            break
+        fi
+        echo "==> Tentativa $i/3 de baixar a chave do NodeSource..."
+        sleep 2
+    done
+
+    [ -f /etc/apt/keyrings/nodesource.gpg ] || return 1
 
     echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" \
         > /etc/apt/sources.list.d/nodesource.list
 
     apt-get update -y
-    apt-get install -y nodejs
+    apt-get install -y nodejs || return 1
 
     mkdir -p /opt/npm
-    chown -R ${SUDO_USER:-$USER}:${SUDO_USER:-$USER} /opt/npm
-    npm install -g @angular/cli || true
+    chown -R ${SUDO_USER:-$USER}:${SUDO_USER:-$USER} /opt/npm 2>/dev/null || true
+    npm install -g @angular/cli 2>/dev/null || true
     command -v node &>/dev/null
 }
 
@@ -515,7 +592,8 @@ instalar_snaps_ides() {
 # =====================================================================
 instalar_flutter() {
     rm -f /tmp/flutter.tar.xz
-    wget https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.10.5-stable.tar.xz \
+    wget --timeout=120 --tries=2 \
+        https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.10.5-stable.tar.xz \
         -O /tmp/flutter.tar.xz || return 1
 
     [ -s /tmp/flutter.tar.xz ] || return 1
@@ -531,7 +609,8 @@ instalar_flutter() {
 # =====================================================================
 instalar_nand2tetris() {
     rm -f /tmp/nand2tetris.zip
-    wget --no-check-certificate https://nuvem.ufba.br/s/ykUB6F81M5z2Ef1/download \
+    wget --timeout=60 --tries=2 --no-check-certificate \
+        https://nuvem.ufba.br/s/ykUB6F81M5z2Ef1/download \
         -O /tmp/nand2tetris.zip || return 1
 
     [ -s /tmp/nand2tetris.zip ] || return 1
@@ -545,7 +624,8 @@ instalar_nand2tetris() {
 # =====================================================================
 instalar_chrome() {
     rm -f /tmp/chrome.deb
-    wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
+    wget --timeout=60 --tries=2 \
+        https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
         -O /tmp/chrome.deb || return 1
 
     [ -s /tmp/chrome.deb ] || return 1
@@ -560,7 +640,9 @@ instalar_chrome() {
 instalar_android_studio() {
     if [ ! -d /opt/Android ]; then
         rm -f /tmp/Android.tar.bz2
-        wget https://nuvem.ufba.br/s/FjNaDukULOwHhs4/download -O /tmp/Android.tar.bz2 || return 1
+        wget --timeout=120 --tries=2 \
+            https://nuvem.ufba.br/s/FjNaDukULOwHhs4/download \
+            -O /tmp/Android.tar.bz2 || return 1
         [ -s /tmp/Android.tar.bz2 ] || return 1
         tar xjf /tmp/Android.tar.bz2 -C /opt || return 1
         rm -f /tmp/Android.tar.bz2
@@ -573,7 +655,9 @@ instalar_android_studio() {
 
     if [ ! -d /opt/gradle ]; then
         rm -f /tmp/gradle.tar.bz2
-        wget https://nuvem.ufba.br/s/U5anBL3tRpN2xhT/download -O /tmp/gradle.tar.bz2 || return 1
+        wget --timeout=120 --tries=2 \
+            https://nuvem.ufba.br/s/U5anBL3tRpN2xhT/download \
+            -O /tmp/gradle.tar.bz2 || return 1
         [ -s /tmp/gradle.tar.bz2 ] || return 1
         tar xjf /tmp/gradle.tar.bz2 -C /opt || return 1
         mv /opt/.gradle /opt/gradle 2>/dev/null || true
@@ -585,22 +669,30 @@ instalar_android_studio() {
 }
 
 # =====================================================================
-# 36) Unity Hub (limpa chave antes)
+# 36) Unity Hub (v8.0.2 — com retry)
 # =====================================================================
 instalar_unityhub() {
-    add-apt-repository -y ppa:dotnet/backports
+    add-apt-repository -y ppa:dotnet/backports || return 1
 
     rm -f /usr/share/keyrings/Unity_Technologies_ApS.gpg
     rm -f /etc/apt/sources.list.d/unityhub.list
 
-    wget -qO - https://hub.unity3d.com/linux/keys/public | \
-        gpg --dearmor | tee /usr/share/keyrings/Unity_Technologies_ApS.gpg > /dev/null || return 1
+    for i in 1 2 3; do
+        if wget -q --timeout=20 --tries=2 -O - https://hub.unity3d.com/linux/keys/public | \
+            gpg --dearmor > /usr/share/keyrings/Unity_Technologies_ApS.gpg 2>/dev/null; then
+            break
+        fi
+        echo "==> Tentativa $i/3 de baixar a chave do Unity..."
+        sleep 2
+    done
+
+    [ -s /usr/share/keyrings/Unity_Technologies_ApS.gpg ] || return 1
 
     echo "deb [signed-by=/usr/share/keyrings/Unity_Technologies_ApS.gpg] https://hub.unity3d.com/linux/repos/deb stable main" \
         > /etc/apt/sources.list.d/unityhub.list
 
     apt-get update -y
-    apt-get install -y unityhub dotnet-sdk-9.0
+    apt-get install -y unityhub dotnet-sdk-9.0 || return 1
     command -v unityhub &>/dev/null
 }
 
@@ -609,7 +701,8 @@ instalar_unityhub() {
 # =====================================================================
 instalar_frame0() {
     rm -f /tmp/frame0.deb
-    wget https://files.frame0.app/releases/linux/x64/frame0_1.0.0~beta.8_amd64.deb \
+    wget --timeout=60 --tries=2 \
+        https://files.frame0.app/releases/linux/x64/frame0_1.0.0~beta.8_amd64.deb \
         -O /tmp/frame0.deb || return 1
 
     [ -s /tmp/frame0.deb ] || return 1
@@ -619,7 +712,7 @@ instalar_frame0() {
 }
 
 # =====================================================================
-# 38) Firefox (via SNAP — v8.0.1)
+# 38) Firefox (v8.0.1 — via SNAP)
 # =====================================================================
 instalar_firefox() {
     echo ""
@@ -627,11 +720,9 @@ instalar_firefox() {
     echo " FIREFOX: instalando via snap"
     echo "=================================================="
 
-    # 38.1) Matar processos
     pkill -9 firefox 2>/dev/null || true
     sleep 1
 
-    # 38.2) Remover qualquer resíduo do método .deb/PPA antigo
     echo "==> Removendo resíduos do Firefox .deb (se houver)..."
     if dpkg -l firefox 2>/dev/null | grep -qE "^(ii|rc|iU|iF|hi|hr)"; then
         apt-get purge -y firefox 2>/dev/null || true
@@ -639,7 +730,6 @@ instalar_firefox() {
     fi
     dpkg --purge --force-all firefox 2>/dev/null || true
 
-    # 38.3) Limpar PPAs, pins e chaves antigas da Mozilla
     echo "==> Limpando repositórios/pins antigos..."
     rm -f /etc/apt/sources.list.d/*mozilla*        2>/dev/null
     rm -f /etc/apt/sources.list.d/*firefox*        2>/dev/null
@@ -648,15 +738,12 @@ instalar_firefox() {
     rm -f /usr/share/keyrings/packages.mozilla.org.gpg 2>/dev/null
     rm -f /etc/apt/keyrings/packages.mozilla.org.gpg   2>/dev/null
 
-    # 38.4) Limpar tarball antigo em /opt (se houver)
     rm -rf /opt/firefox
     rm -f  /usr/local/bin/firefox
 
-    # 38.5) Instalar snap do Firefox
     echo "==> Instalando Firefox via snap..."
     snap install firefox || true
 
-    # 38.6) Validar
     if snap list firefox &>/dev/null; then
         echo "[SUCESSO] Firefox snap instalado: $(snap list firefox | awk 'NR==2{print $2}')"
         return 0
@@ -670,8 +757,6 @@ instalar_firefox() {
 # 39) Atalhos na dock
 # =====================================================================
 instalar_atalhos_dock() {
-    # Firefox snap cria /var/lib/snapd/desktop/applications/firefox_firefox.desktop
-    # Se não existir um .desktop próprio, cria um apontando pro snap.
     if [ ! -f /usr/share/applications/firefox.desktop ] && \
        [ ! -f /var/lib/snapd/desktop/applications/firefox_firefox.desktop ]; then
         cat > /usr/share/applications/firefox.desktop <<'EOF'
@@ -723,7 +808,7 @@ instalar_vlc() {
 # =====================================================================
 
 echo "=================================================="
-echo " lab-programs.sh v8.0.1"
+echo " lab-programs.sh v8.0.2"
 echo " Instalando programas com controle de estado"
 echo "=================================================="
 
