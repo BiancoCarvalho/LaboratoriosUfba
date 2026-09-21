@@ -15,7 +15,6 @@ wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-eula-
 wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-program-config.sh -O /tmp/lab-program-config.sh
 wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-inventory.sh -O /tmp/lab-inventory.sh
 wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-admin-profile-config.sh -O /tmp/lab-admin-profile-config.sh
-wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-labadmin-config.sh -O /tmp/lab-labadmin-config.sh
 wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-block.sh -O /tmp/lab-block.sh
 wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-block-sites.sh -O /tmp/lab-block-sites.sh
 wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-unblock.sh -O /tmp/lab-unblock.sh
@@ -44,9 +43,6 @@ else
 	if [ ! -f /usr/local/sbin/lab-aluno-config.sh ] || ! cmp -s /usr/local/sbin/lab-aluno-config.sh /tmp/lab-aluno-config.sh; then
 		echo "false" > /usr/local/sbin/done.txt
 	fi
-	if [ ! -f /usr/local/sbin/lab-aluno-ssh-config.sh ] || ! cmp -s /usr/local/sbin/lab-aluno-ssh-config.sh /tmp/lab-aluno-ssh-config.sh; then
-		echo "false" > /usr/local/sbin/done.txt
-	fi
 	if [ ! -f /usr/local/sbin/lab-programs.sh ] || ! cmp -s /usr/local/sbin/lab-programs.sh /tmp/lab-programs.sh; then
 		echo "false" > /usr/local/sbin/done.txt
 	fi
@@ -60,12 +56,6 @@ else
 		echo "false" > /usr/local/sbin/done.txt
 	fi
 	if [ ! -f /usr/local/sbin/lab-admin-profile-config.sh ] || ! cmp -s /usr/local/sbin/lab-admin-profile-config.sh /tmp/lab-admin-profile-config.sh; then
-		echo "false" > /usr/local/sbin/done.txt
-	fi
-	if [ ! -f /usr/local/sbin/lab-labadmin-config.sh ] || ! cmp -s /usr/local/sbin/lab-labadmin-config.sh /tmp/lab-labadmin-config.sh; then
-		echo "false" > /usr/local/sbin/done.txt
-	fi
-	if [ ! -f /usr/local/sbin/lab-prova-install.sh ] || ! cmp -s /usr/local/sbin/lab-prova-install.sh /tmp/lab-prova-install.sh; then
 		echo "false" > /usr/local/sbin/done.txt
 	fi
 	if [ ! -f /usr/local/sbin/lab-block.sh ] || ! cmp -s /usr/local/sbin/lab-block.sh /tmp/lab-block.sh; then
@@ -100,14 +90,11 @@ if [ "$DONE" = "false" ]; then
 	
 	cp /tmp/lab-profile-config.sh /usr/local/sbin
 	cp /tmp/lab-aluno-config.sh /usr/local/sbin
-	cp /tmp/lab-aluno-ssh-config.sh /usr/local/sbin
 	cp /tmp/lab-programs.sh /usr/local/sbin
 	cp /tmp/lab-eula-programs.sh /usr/local/sbin
 	cp /tmp/lab-program-config.sh /usr/local/sbin
 	cp /tmp/lab-inventory.sh /usr/local/sbin
 	cp /tmp/lab-admin-profile-config.sh /usr/local/sbin
-	cp /tmp/lab-labadmin-config.sh /usr/local/sbin
-	cp /tmp/lab-prova-install.sh /usr/local/sbin
 	cp /tmp/lab-block.sh /usr/local/sbin
 	cp /tmp/lab-block-sites.sh /usr/local/sbin
 	cp /tmp/lab-unblock.sh /usr/local/sbin
@@ -117,14 +104,11 @@ if [ "$DONE" = "false" ]; then
 
 	chmod 755 /usr/local/sbin/lab-profile-config.sh
 	chmod 755 /usr/local/sbin/lab-aluno-config.sh
-	chmod 755 /usr/local/sbin/lab-aluno-ssh-config.sh
 	chmod 755 /usr/local/sbin/lab-programs.sh
 	chmod 755 /usr/local/sbin/lab-eula-programs.sh
 	chmod 755 /usr/local/sbin/lab-program-config.sh
 	chmod 755 /usr/local/sbin/lab-inventory.sh
 	chmod 755 /usr/local/sbin/lab-admin-profile-config.sh
-	chmod 755 /usr/local/sbin/lab-labadmin-config.sh
-	chmod 755 /usr/local/sbin/lab-prova-install.sh
 	chmod 755 /usr/local/sbin/lab-block.sh
 	chmod 755 /usr/local/sbin/lab-block-sites.sh
 	chmod 755 /usr/local/sbin/lab-unblock.sh
@@ -158,9 +142,7 @@ if [ "$DONE" = "false" ]; then
 	/usr/local/sbin/lab-program-config.sh
 	/usr/local/sbin/lab-inventory.sh
 	/usr/local/sbin/lab-admin-profile-config.sh
-	/usr/local/sbin/lab-labadmin-config.sh
-	/usr/local/sbin/lab-prova-install.sh
-
+	
 	rm -f /tmp/lab-admin-profile-config.sh
 
 	echo ""
