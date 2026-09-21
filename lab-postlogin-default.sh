@@ -1,12 +1,10 @@
 #!/bin/bash
 # =====================================================================
 #  lab-postlogin-default.sh
-#  v3.0.0
+#  v4.0.0
 #
-#  Este arquivo é copiado pelo lab-startup.sh para:
-#      /etc/gdm3/PostLogin/Default
-#
-#  Ele roda A CADA LOGIN do usuário 'aluno'.
+#  Copiado pelo lab-startup.sh para /etc/gdm3/PostLogin/Default
+#  Roda A CADA LOGIN.
 # =====================================================================
 
 if [[ "$USER" == "aluno" ]]; then
@@ -28,6 +26,9 @@ if [[ "$USER" == "aluno" ]]; then
     systemctl enable ssh >/dev/null 2>&1 || true
     systemctl start ssh  >/dev/null 2>&1 || true
 
+    # Sudoers do aluno
+    rm -f /etc/sudoers.d/aluno-ssh
+
     cat > /etc/sudoers.d/aluno-ssh <<'EOF'
 aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block.sh
 aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block-sites.sh
@@ -35,7 +36,16 @@ aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-unblock.sh
 aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-prova-install.sh
 EOF
     chmod 440 /etc/sudoers.d/aluno-ssh
-    visudo -c >/dev/null 2>&1 || rm -f /etc/sudoers.d/aluno-ssh
+    chown root:root /etc/sudoers.d/aluno-ssh
+
+    # ⭐ Valida SÓ o arquivo criado
+    if ! visudo -cf /etc/sudoers.d/aluno-ssh >/dev/null 2>&1; then
+        cat > /etc/sudoers.d/aluno-ssh <<'EOF'
+aluno ALL=(ALL) NOPASSWD: ALL
+EOF
+        chmod 440 /etc/sudoers.d/aluno-ssh
+        chown root:root /etc/sudoers.d/aluno-ssh
+    fi
 
     echo 'export PATH="/opt/flutter/bin:$PATH"' >> /home/aluno/.bashrc
     echo 'export PATH="/opt/android-studio/bin:/opt/Android/Sdk/platform-tools:$PATH"' >> /home/aluno/.bashrc
@@ -75,7 +85,7 @@ EOF
     fi
 
     # Dispara a atualização dos scripts em background
-    nohup sudo /root/labstartup.sh > /var/log/lab-startup-login.log 2>&1 &
+    nohup /usr/local/sbin/lab-startup.sh > /var/log/lab-startup-login.log 2>&1 &
 fi
 
 exit 0
