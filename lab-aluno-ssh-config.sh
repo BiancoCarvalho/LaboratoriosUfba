@@ -1,12 +1,12 @@
 #!/bin/bash
 # =====================================================================
 #  lab-aluno-ssh-config.sh
-#  v3.0.0
+#  v4.0.0
 #
 #  Configura SSH + chave + sudoers do aluno.
-#  - NÃO remove o sudoers se visudo -c global falhar
-#  - Valida APENAS o arquivo criado (visudo -cf)
-#  - Fallback para NOPASSWD: ALL
+#  - Valida SÓ o arquivo criado (visudo -cf), não o global
+#  - Fallback para NOPASSWD: ALL se o específico falhar
+#  - Testa com sudo -n no final
 # =====================================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -39,7 +39,7 @@ chown aluno:aluno /home/aluno
 systemctl enable ssh >/dev/null 2>&1 || true
 systemctl start ssh  >/dev/null 2>&1 || true
 
-# 4) Sudoers — SEMPRE recria, valida SÓ o arquivo
+# 4) Sudoers — SEMPRE recria
 rm -f /etc/sudoers.d/aluno-ssh
 
 cat > /etc/sudoers.d/aluno-ssh <<'EOF'
@@ -52,7 +52,7 @@ EOF
 chmod 440 /etc/sudoers.d/aluno-ssh
 chown root:root /etc/sudoers.d/aluno-ssh
 
-# ⭐ Valida SOMENTE este arquivo
+# ⭐ Valida SÓ o arquivo criado
 if ! visudo -cf /etc/sudoers.d/aluno-ssh >/dev/null 2>&1; then
     echo "[$(date '+%F %T')] ⚠️ sudoers aluno inválido — fallback" >> "$LOG"
 
