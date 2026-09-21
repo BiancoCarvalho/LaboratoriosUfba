@@ -1,84 +1,89 @@
 #!/bin/bash
 # =====================================================================
-#  lab-labadmin-config.sh
-#  v3.0.0
+#  lab-admin-profile-config.sh
+#  v1.0.0
 #
-#  Cria o usuário 'labadmin' (usado pelo servidor C# via SSH).
+#  Cria/configura o usuário administrador 'NATI'.
+#  - Recria o usuário do zero (home limpo)
+#  - Adiciona ao grupo sudo
+#  - Regras restritas em /etc/sudoers.d/NATI
+#  - Remove o usuário 'suporte' se existir
+#
+#  Localização: /usr/local/sbin/lab-admin-profile-config.sh
+#  Uso: sudo /usr/local/sbin/lab-admin-profile-config.sh
 # =====================================================================
 
 export DEBIAN_FRONTEND=noninteractive
 
-USUARIO="labadmin"
-SENHA="${LABADMIN_PASSWORD:-$(openssl rand -base64 16)}"
+USUARIO="NATI"
+SENHA="@PNZ!2026"
 LOG="/var/log/lab.log"
-CHAVE_PUBLICA=""
 
-if [ -f /usr/local/sbin/labadmin.pub ]; then
-    CHAVE_PUBLICA=$(cat /usr/local/sbin/labadmin.pub)
-fi
+echo "[$(date '+%F %T')] host=$(hostname) ADMIN-PROFILE-CONFIG" >> "$LOG"
 
-echo "[$(date '+%F %T')] host=$(hostname) LABADMIN-CONFIG" >> "$LOG"
-
-# Cria/recria
+# ---------------------------------------------------------------------
+# 1) Recria o usuário do zero
+# ---------------------------------------------------------------------
 if id "$USUARIO" &>/dev/null; then
+    echo "[$(date '+%F %T')] usuário $USUARIO já existe — removendo..." >> "$LOG"
+
     pkill -9 -u "$USUARIO" 2>/dev/null || true
     userdel -r "$USUARIO" 2>/dev/null || true
-    sleep 1
+    sleep 2
 fi
 
-useradd --create-home --shell /bin/bash --comment "Usuario SSH do servidor" "$USUARIO"
+echo "[$(date '+%F %T')] criando usuário $USUARIO..." >> "$LOG"
+
+useradd --create-home --shell /bin/bash "$USUARIO"
 echo "$USUARIO:$SENHA" | chpasswd
+usermod -aG sudo "$USUARIO"
 
-deluser "$USUARIO" sudo 2>/dev/null || true
-deluser "$USUARIO" adm  2>/dev/null || true
+echo "[$(date '+%F %T')] usuário $USUARIO criado e adicionado ao grupo sudo" >> "$LOG"
 
-# Chave SSH
-mkdir -p /home/$USUARIO/.ssh
-chmod 700 /home/$USUARIO/.ssh
-chown $USUARIO:$USUARIO /home/$USUARIO/.ssh
-touch /home/$USUARIO/.ssh/authorized_keys
+# ---------------------------------------------------------------------
+# 2) Sudoers restrito (via /etc/sudoers.d — NUNCA editar /etc/sudoers)
+# ---------------------------------------------------------------------
+rm -f /etc/sudoers.d/NATI
 
-if [ -n "$CHAVE_PUBLICA" ]; then
-    if ! grep -qF "$CHAVE_PUBLICA" /home/$USUARIO/.ssh/authorized_keys 2>/dev/null; then
-        echo "$CHAVE_PUBLICA" >> /home/$USUARIO/.ssh/authorized_keys
-    fi
-fi
-
-chmod 600 /home/$USUARIO/.ssh/authorized_keys
-chown $USUARIO:$USUARIO /home/$USUARIO/.ssh/authorized_keys
-
-# Sudoers
-rm -f /etc/sudoers.d/labadmin
-
-cat > /etc/sudoers.d/labadmin <<'EOF'
-labadmin ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block.sh
-labadmin ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block-sites.sh
-labadmin ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-unblock.sh
-labadmin ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-prova-install.sh
-labadmin ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-prova-profile-config.sh
-labadmin ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-prova-config.sh
+cat > /etc/sudoers.d/NATI <<'EOF'
+# NATI — administrador do laboratório
+NATI ALL=(ALL) NOPASSWD: /usr/bin/apt, /usr/bin/apt-get, /usr/bin/dpkg
+NATI ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block.sh
+NATI ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block-sites.sh
+NATI ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-unblock.sh
 EOF
 
-chmod 440 /etc/sudoers.d/labadmin
-chown root:root /etc/sudoers.d/labadmin
+chmod 440 /etc/sudoers.d/NATI
+chown root:root /etc/sudoers.d/NATI
 
 # ⭐ Valida SÓ o arquivo criado
-if ! visudo -cf /etc/sudoers.d/labadmin >/dev/null 2>&1; then
-    echo "[$(date '+%F %T')] ⚠️ sudoers labadmin inválido — fallback" >> "$LOG"
+if ! visudo -cf /etc/sudoers.d/NATI >/dev/null 2>&1; then
+    echo "[$(date '+%F %T')] ⚠️ sudoers NATI inválido — aplicando fallback" >> "$LOG"
 
-    cat > /etc/sudoers.d/labadmin <<'EOF'
-labadmin ALL=(ALL) NOPASSWD: ALL
+    cat > /etc/sudoers.d/NATI <<'EOF'
+NATI ALL=(ALL) NOPASSWD: ALL
 EOF
-    chmod 440 /etc/sudoers.d/labadmin
-    chown root:root /etc/sudoers.d/labadmin
+    chmod 440 /etc/sudoers.d/NATI
+    chown root:root /etc/sudoers.d/NATI
 fi
 
-# Testa
-if sudo -n -u labadmin true 2>/dev/null; then
-    echo "[$(date '+%F %T')] ✅ sudoers labadmin OK" >> "$LOG"
+# ---------------------------------------------------------------------
+# 3) Remove o usuário 'suporte' se existir
+# ---------------------------------------------------------------------
+if id "suporte" &>/dev/null; then
+    pkill -9 -u "suporte" 2>/dev/null || true
+    userdel -r "suporte" 2>/dev/null || true
+    echo "[$(date '+%F %T')] usuário suporte removido" >> "$LOG"
+fi
+
+# ---------------------------------------------------------------------
+# 4) Teste final
+# ---------------------------------------------------------------------
+if sudo -n -u "$USUARIO" true 2>/dev/null; then
+    echo "[$(date '+%F %T')] ✅ sudoers $USUARIO OK" >> "$LOG"
 else
-    echo "[$(date '+%F %T')] ⚠️ sudoers labadmin NÃO funciona" >> "$LOG"
+    echo "[$(date '+%F %T')] ⚠️ sudoers $USUARIO NÃO funciona" >> "$LOG"
 fi
 
-echo "[$(date '+%F %T')] LABADMIN-CONFIG concluído" >> "$LOG"
+echo "[$(date '+%F %T')] ADMIN-PROFILE-CONFIG concluído" >> "$LOG"
 exit 0
