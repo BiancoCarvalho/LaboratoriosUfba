@@ -1,40 +1,25 @@
-#!/bin/bash
-# =====================================================================
-# /root/labstartup.sh
-# Roda no boot, baixa o lab-startup.sh e executa.
-# =====================================================================
+echo '#!/bin/sh
+wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-startup.sh -O /tmp/startup.sh
+chmod a+x /tmp/startup.sh
+/tmp/startup.sh
+exit 0
+' > /root/labstartup.sh
+chmod a+x /root/labstartup.sh
 
-REPO="https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main"
-LOG="/var/log/labstartup.log"
+echo '[Unit]
+Description=Atualiza instalacao dos labs
+Wants=network-online.target
+After=network.target network-online.target
 
-echo "[$(date '+%F %T')] === INÍCIO ===" >> "$LOG"
+[Service]
+ExecStart=/root/labstartup.sh
+Type=oneshot
+Restart=on-failure
+RestartSec=20
 
-# Espera a rede estar pronta (systemd já garante, mas por segurança)
-for i in $(seq 1 30); do
-    if ping -c 1 -W 2 raw.githubusercontent.com &>/dev/null; then
-        break
-    fi
-    echo "[$(date '+%F %T')] aguardando rede... ($i/30)" >> "$LOG"
-    sleep 2
-done
+[Install]
+WantedBy=multi-user.target
+' > /etc/systemd/system/labstartup.service
 
-# Baixa o lab-startup.sh
-if ! wget -q "$REPO/lab-startup.sh" -O /tmp/startup.sh; then
-    echo "[$(date '+%F %T')] ❌ Falha ao baixar lab-startup.sh" >> "$LOG"
-    exit 1
-fi
-
-if [ ! -s /tmp/startup.sh ]; then
-    echo "[$(date '+%F %T')] ❌ lab-startup.sh vazio" >> "$LOG"
-    exit 1
-fi
-
-chmod +x /tmp/startup.sh
-
-# Roda
-echo "[$(date '+%F %T')] Executando lab-startup.sh..." >> "$LOG"
-/tmp/startup.sh >> "$LOG" 2>&1
-
-RET=$?
-echo "[$(date '+%F %T')] === FIM (exit $RET) ===" >> "$LOG"
-exit $RET
+sudo systemctl daemon-reload
+sudo systemctl enable labstartup.service
