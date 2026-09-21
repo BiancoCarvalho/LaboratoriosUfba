@@ -1,21 +1,50 @@
 #!/bin/bash
 # =====================================================================
 #  lab-programs.sh
-#  v6.0.0
+#  v7.0.0
 #
 #  Instala todos os programas do laboratório.
-#  Inclui openssh-server, Firefox .deb e Chrome.
+#  Cada programa tem um SELO em /usr/local/sbin/.lab-state/NOME.
+#  - Se o selo existe  → pula (rápido)
+#  - Se não existe     → tenta instalar
+#  - Se falhar         → NÃO cria o selo → tenta de novo no próximo boot
+#
+#  Para forçar reinstalação de um programa:
+#      rm /usr/local/sbin/.lab-state/NOME
+#
+#  Para listar o que já foi instalado:
+#      ls /usr/local/sbin/.lab-state/
 # =====================================================================
 
 export DEBIAN_FRONTEND=noninteractive
 
-# Função utilitária
-check_install() {
-    if command -v "$1" &>/dev/null; then
-        echo "[SUCESSO] $1 instalado corretamente"
+STATE="/usr/local/sbin/.lab-state"
+mkdir -p "$STATE"
+
+# =====================================================================
+# Função: instala só se o selo não existe
+# =====================================================================
+instalar_se_preciso() {
+    local nome="$1"
+    local funcao="$2"
+    local selo="$STATE/$nome"
+
+    if [ -f "$selo" ]; then
+        echo "✅ $nome já instalado"
+        return 0
+    fi
+
+    echo ""
+    echo "=================================================="
+    echo "==> Instalando $nome..."
+    echo "=================================================="
+
+    if $funcao; then
+        touch "$selo"
+        echo "✅ $nome OK (selo criado)"
         return 0
     else
-        echo "[ERRO] Falha ao instalar $1"
+        echo "❌ $nome FALHOU — tentará de novo no próximo boot"
         return 1
     fi
 }
@@ -23,504 +52,551 @@ check_install() {
 # =====================================================================
 # 0) SSH
 # =====================================================================
-echo "==> Instalando openssh-server..."
-if ! dpkg -l | grep -q "^ii  openssh-server"; then
-    sudo apt-get update -y
-    sudo apt-get install -y openssh-server
-fi
-sudo systemctl enable ssh 2>/dev/null || true
-sudo systemctl start ssh  2>/dev/null || true
-if systemctl is-active --quiet ssh; then
-    echo "[SUCESSO] SSH rodando"
-else
-    echo "[AVISO] SSH não está rodando"
-fi
+instalar_ssh() {
+    apt-get update -y || return 1
+    apt-get install -y openssh-server || return 1
+    systemctl enable ssh 2>/dev/null
+    systemctl start ssh  2>/dev/null
+    systemctl is-active --quiet ssh
+}
 
 # =====================================================================
-# 1) BLOQUEAR MÓDULO algif_aead
+# 1) Bloquear módulo algif_aead
 # =====================================================================
-echo "Configurando bloqueio do módulo algif_aead..."
-CONF="/etc/modprobe.d/manual-disable-algif_aead.conf"
-if ! grep -q "algif_aead" "$CONF" 2>/dev/null; then
+instalar_algif_aead_block() {
+    local CONF="/etc/modprobe.d/manual-disable-algif_aead.conf"
     echo "install algif_aead /bin/false" > "$CONF"
     echo "blacklist algif_aead" >> "$CONF"
     update-initramfs -u
-    echo "✔ Bloqueio aplicado"
-else
-    echo "✔ Já configurado"
-fi
-rmmod algif_aead 2>/dev/null || true
+    rmmod algif_aead 2>/dev/null || true
+    [ -f "$CONF" ]
+}
 
 # =====================================================================
-# 2) RELEASE UPGRADER
+# 2) Release upgrader
 # =====================================================================
-echo "Corrigindo release upgrader..."
-sudo apt-get update -y
-sudo apt-get install --reinstall -y ubuntu-release-upgrader-core ubuntu-release-upgrader-gtk python3-apt
-sudo apt --fix-broken install -y
-sudo dpkg --configure -a
-sudo apt autoremove -y
+instalar_release_upgrader() {
+    apt-get update -y
+    apt-get install --reinstall -y ubuntu-release-upgrader-core ubuntu-release-upgrader-gtk python3-apt
+    apt --fix-broken install -y
+    dpkg --configure -a
+    apt autoremove -y
 
-sudo sed -i 's/^Prompt=.*/Prompt=never/' /etc/update-manager/release-upgrades
-gsettings set com.ubuntu.update-notifier show-livepatch-status false 2>/dev/null || true
-gsettings set com.ubuntu.update-notifier auto-launch false 2>/dev/null || true
-sudo systemctl disable --now apt-daily.service apt-daily.timer apt-daily-upgrade.timer apt-daily-upgrade.service 2>/dev/null || true
+    sed -i 's/^Prompt=.*/Prompt=never/' /etc/update-manager/release-upgrades
+    gsettings set com.ubuntu.update-notifier show-livepatch-status false 2>/dev/null || true
+    gsettings set com.ubuntu.update-notifier auto-launch false 2>/dev/null || true
+    systemctl disable --now apt-daily.service apt-daily.timer apt-daily-upgrade.timer apt-daily-upgrade.service 2>/dev/null || true
 
-sudo -E apt-get update -y
-sudo -E apt-get install -y software-properties-common apt-transport-https ca-certificates curl wget gnupg
+    apt-get install -y software-properties-common apt-transport-https ca-certificates curl wget gnupg
+    [ -f /etc/update-manager/release-upgrades ]
+}
 
 # =====================================================================
-# 3) QUARTO
+# 3) Quarto
 # =====================================================================
-QUARTO_VERSION="1.8.24"
-QUARTO_URL="https://github.com/quarto-dev/quarto-cli/releases/download/v${QUARTO_VERSION}/quarto-${QUARTO_VERSION}-linux-amd64.deb"
-if ! command -v quarto &>/dev/null; then
-    wget -O /tmp/quarto.deb "$QUARTO_URL"
-    sudo dpkg -i /tmp/quarto.deb || sudo apt-get -f install -y
+instalar_quarto() {
+    local V="1.8.24"
+    local URL="https://github.com/quarto-dev/quarto-cli/releases/download/v${V}/quarto-${V}-linux-amd64.deb"
+
+    wget -O /tmp/quarto.deb "$URL" || return 1
+    dpkg -i /tmp/quarto.deb || apt-get -f install -y
     rm -f /tmp/quarto.deb
-fi
-check_install quarto
+    command -v quarto &>/dev/null
+}
 
 # =====================================================================
-# 4) ATUALIZAÇÃO DO SISTEMA
+# 4) Atualização do sistema
 # =====================================================================
-echo "Atualizando sistema..."
-sudo -E apt-get update -y
-sudo -E apt-get upgrade -y
-sudo -E apt-get dist-upgrade -y
-sudo -E apt-get autoremove -y
-sudo -E apt-get install -f -y
+instalar_system_update() {
+    apt-get update -y
+    apt-get upgrade -y
+    apt-get dist-upgrade -y
+    apt-get autoremove -y
+    apt-get install -f -y
+    true
+}
 
 # =====================================================================
-# 5) CLAMAV
+# 5) ClamAV
 # =====================================================================
-echo "Instalando ClamAV e ClamTK..."
-sudo -E apt-get install -y clamav freshclam clamtk
-sudo freshclam || true
-check_install clamscan
-check_install clamtk
+instalar_clamav() {
+    apt-get install -y clamav freshclam clamtk || return 1
+    freshclam || true
+    command -v clamscan &>/dev/null
+}
 
 # =====================================================================
-# 6) REMOVER TERMIUS
+# 6) Remover Termius
 # =====================================================================
-echo "Removendo Termius..."
-if dpkg -l | grep -q termius-app; then
-    sudo apt-get purge -y termius-app
-    sudo apt-get autoremove -y
-else
-    sudo rm -rf /opt/Termius
-    sudo rm -f /usr/share/applications/termius.desktop
-    sudo rm -f /usr/bin/termius
-fi
+instalar_remover_termius() {
+    if dpkg -l | grep -q termius-app; then
+        apt-get purge -y termius-app
+        apt-get autoremove -y
+    else
+        rm -rf /opt/Termius
+        rm -f /usr/share/applications/termius.desktop
+        rm -f /usr/bin/termius
+    fi
+    ! dpkg -l | grep -q termius-app
+}
 
 # =====================================================================
-# 7) JUPYTER
+# 7) Jupyter
 # =====================================================================
-echo "Instalando Jupyter..."
-pip install jupyter -q
-check_install jupyter
+instalar_jupyter() {
+    pip install jupyter -q
+    command -v jupyter &>/dev/null
+}
 
 # =====================================================================
-# 8) DOCKER
+# 8) Docker
 # =====================================================================
-echo "Instalando Docker..."
-sudo apt-get install -y ca-certificates curl gnupg lsb-release
-sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt-get update -y
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-USERNAME=${SUDO_USER:-$USER}
-sudo usermod -aG docker $USERNAME
-check_install docker
+instalar_docker() {
+    apt-get install -y ca-certificates curl gnupg lsb-release
+    mkdir -p /etc/apt/keyrings
+
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
+        gpg --dearmor -o /etc/apt/keyrings/docker.gpg || return 1
+
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
+        > /etc/apt/sources.list.d/docker.list
+
+    apt-get update -y
+    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin || return 1
+
+    USERNAME=${SUDO_USER:-$USER}
+    usermod -aG docker "$USERNAME" 2>/dev/null || true
+
+    command -v docker &>/dev/null
+}
 
 # =====================================================================
 # 9) AVRA
 # =====================================================================
-echo "Instalando AVRA 1.3.0..."
-sudo apt-get install -y build-essential wget bzip2
-cd /tmp
-wget -q https://downloads.sourceforge.net/project/avra/1.3.0/avra-1.3.0.tar.bz2
-tar -xjf avra-1.3.0.tar.bz2
-cd avra-1.3.0
-make
-sudo make install
-cd /
-check_install avra
+instalar_avra() {
+    apt-get install -y build-essential wget bzip2
+    cd /tmp
+    wget -q https://downloads.sourceforge.net/project/avra/1.3.0/avra-1.3.0.tar.bz2 || return 1
+    tar -xjf avra-1.3.0.tar.bz2
+    cd avra-1.3.0
+    make || return 1
+    make install
+    cd /
+    command -v avra &>/dev/null
+}
 
 # =====================================================================
-# 10) OLLAMA
+# 10) Ollama
 # =====================================================================
-echo "Instalando Ollama..."
-curl -fsSL https://ollama.com/install.sh | sh
-check_install ollama
+instalar_ollama() {
+    curl -fsSL https://ollama.com/install.sh | sh
+    command -v ollama &>/dev/null
+}
 
 # =====================================================================
-# 11) SUBLIME TEXT
+# 11) Sublime Text
 # =====================================================================
-echo "Instalando Sublime Text..."
-curl -fsSL https://download.sublimetext.com/sublimehq-pub.gpg | sudo gpg --dearmor -o /usr/share/keyrings/sublime-text-archive-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/sublime-text-archive-keyring.gpg] https://download.sublimetext.com/ apt/stable/" | sudo tee /etc/apt/sources.list.d/sublime-text.list
-sudo -E apt-get update -y
-sudo -E apt-get install -y sublime-text
-check_install subl
+instalar_sublime() {
+    curl -fsSL https://download.sublimetext.com/sublimehq-pub.gpg | \
+        gpg --dearmor -o /usr/share/keyrings/sublime-text-archive-keyring.gpg
+    echo "deb [signed-by=/usr/share/keyrings/sublime-text-archive-keyring.gpg] https://download.sublimetext.com/ apt/stable/" \
+        > /etc/apt/sources.list.d/sublime-text.list
+    apt-get update -y
+    apt-get install -y sublime-text
+    command -v subl &>/dev/null
+}
 
 # =====================================================================
-# 12) NEOFETCH
+# 12) Neofetch
 # =====================================================================
-sudo -E apt-get install -y neofetch
-check_install neofetch
+instalar_neofetch() {
+    apt-get install -y neofetch
+    command -v neofetch &>/dev/null
+}
 
 # =====================================================================
-# 13) VS CODE
+# 13) VS Code
 # =====================================================================
-echo "Instalando VS Code..."
-wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /tmp/packages.microsoft.gpg
-sudo install -D -o root -g root -m 644 /tmp/packages.microsoft.gpg /etc/apt/keyrings/packages.microsoft.gpg
-sudo sh -c 'echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list'
-rm -f /tmp/packages.microsoft.gpg
-sudo -E apt-get update -y
-sudo -E apt-get install -y code
-check_install code
+instalar_vscode() {
+    wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /tmp/packages.microsoft.gpg
+    install -D -o root -g root -m 644 /tmp/packages.microsoft.gpg /etc/apt/keyrings/packages.microsoft.gpg
+    echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" \
+        > /etc/apt/sources.list.d/vscode.list
+    rm -f /tmp/packages.microsoft.gpg
+    apt-get update -y
+    apt-get install -y code
+    command -v code &>/dev/null
+}
 
 # =====================================================================
-# 14) OBS STUDIO
+# 14) OBS Studio
 # =====================================================================
-echo "Instalando OBS Studio..."
-sudo add-apt-repository -y ppa:obsproject/obs-studio
-sudo -E apt-get update -y
-sudo -E apt-get install -y obs-studio v4l2loopback-dkms
-check_install obs
+instalar_obs() {
+    add-apt-repository -y ppa:obsproject/obs-studio
+    apt-get update -y
+    apt-get install -y obs-studio v4l2loopback-dkms
+    command -v obs &>/dev/null
+}
 
 # =====================================================================
-# 15) PACOTES ESSENCIAIS (incluindo SSH)
+# 15) Pacotes essenciais
 # =====================================================================
-echo "Instalando pacotes essenciais..."
-sudo -E apt-get install -y \
-    python3-pip default-jre default-jdk maven swi-prolog racket elixir clisp nasm gcc-multilib \
-    python3.11-full python3.10-venv \
-    git flex bison vim sasm \
-    mysql-server postgresql postgresql-contrib \
-    arp-scan net-tools mtr dnsutils traceroute curl \
-    gnupg ca-certificates podman megatools \
-    openssh-server
+instalar_pacotes_essenciais() {
+    apt-get install -y \
+        python3-pip default-jre default-jdk maven swi-prolog racket elixir clisp nasm gcc-multilib \
+        python3.11-full python3.10-venv \
+        git flex bison vim sasm \
+        mysql-server postgresql postgresql-contrib \
+        arp-scan net-tools mtr dnsutils traceroute curl \
+        gnupg ca-certificates podman megatools \
+        openssh-server
+    command -v git &>/dev/null
+}
 
 # =====================================================================
-# 16) OCTAVE
+# 16) Octave
 # =====================================================================
-echo "Instalando GNU Octave..."
-sudo -E apt-get install -y octave
-check_install octave
+instalar_octave() {
+    apt-get install -y octave
+    command -v octave &>/dev/null
+}
 
 # =====================================================================
-# 17) RACKET
+# 17) Racket
 # =====================================================================
-echo "Verificando Racket..."
-LATEST_RACKET_URL=$(curl -s https://download.racket-lang.org/ | grep -oP 'https://[^"]+linux-x64.sh' | head -n 1 || true)
-if [ -n "$LATEST_RACKET_URL" ]; then
-    wget -O /tmp/racket-install.sh "$LATEST_RACKET_URL"
-    chmod +x /tmp/racket-install.sh
-    sudo /tmp/racket-install.sh --in-place --dest /opt/racket
-    sudo ln -sf /opt/racket/bin/racket /usr/local/bin/racket
-    rm -f /tmp/racket-install.sh
-fi
-check_install racket
+instalar_racket() {
+    local LATEST_URL
+    LATEST_URL=$(curl -s https://download.racket-lang.org/ | grep -oP 'https://[^"]+linux-x64.sh' | head -n 1 || true)
 
-# =====================================================================
-# 18) SWI-PROLOG
-# =====================================================================
-echo "Verificando SWI-Prolog..."
-sudo add-apt-repository -y ppa:swi-prolog/stable
-sudo -E apt-get update -y
-sudo -E apt-get install -y swi-prolog
-check_install swipl
-
-# =====================================================================
-# 19) POSTGRESQL 17
-# =====================================================================
-echo "Instalando PostgreSQL 17..."
-sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add - 2>/dev/null || true
-sudo -E apt-get update -y
-sudo -E apt-get install -y postgresql-17 postgresql-contrib
-sudo systemctl start postgresql
-sudo systemctl enable postgresql
-check_install psql
-
-# =====================================================================
-# 20) PGADMIN
-# =====================================================================
-echo "Instalando pgAdmin..."
-curl -fsS https://www.pgadmin.org/static/packages_pgadmin_org.pub | sudo gpg --dearmor -o /usr/share/keyrings/packages-pgadmin-org.gpg
-sudo sh -c 'echo "deb [signed-by=/usr/share/keyrings/packages-pgadmin-org.gpg] https://ftp.postgresql.org/pub/pgadmin/pgadmin4/apt/$(lsb_release -cs) pgadmin4 main" > /etc/apt/sources.list.d/pgadmin4.list'
-sudo -E apt-get update -y
-sudo -E apt-get install -y pgadmin4-web pgadmin4-desktop
-
-# =====================================================================
-# 21) MYSQL WORKBENCH
-# =====================================================================
-echo "Instalando MySQL Workbench..."
-wget http://cdn.mysql.com/Downloads/MySQLGUITools/mysql-workbench-community_8.0.34-1ubuntu22.04_amd64.deb -O /tmp/mysql-workbench.deb || true
-if [ -f /tmp/mysql-workbench.deb ]; then
-    sudo -E dpkg -i /tmp/mysql-workbench.deb || sudo -E apt-get -f install -y
-    rm -f /tmp/mysql-workbench.deb
-fi
-check_install mysql-workbench
-
-# =====================================================================
-# 22) NETBEANS
-# =====================================================================
-echo "Instalando NetBeans..."
-sudo -E apt-get install -y openjdk-17-jdk
-sudo snap install netbeans --classic || true
-
-# =====================================================================
-# 23) GREENFOOT
-# =====================================================================
-echo "Instalando Greenfoot..."
-sudo snap install greenfoot || true
-
-# =====================================================================
-# 24) SIMULIDE
-# =====================================================================
-echo "Instalando SimulIDE..."
-sudo -E apt-get install -y fuse libfuse2 libqt5core5a libqt5gui5 libqt5widgets5 libqt5network5 libqt5svg5 qtbase5-dev qttools5-dev-tools libqt5serialport5 libqt5serialport5-dev
-if [ ! -f /usr/local/bin/simulide ]; then
-    megadl "https://mega.nz/file/8akRDCYJ#8Fvn6U9RIJ-sX_f49fCsn05YTUr5ySNycoFlxVFX-iE" -o /tmp/SimulIDE.tar.gz || true
-    if [ -f /tmp/SimulIDE.tar.gz ]; then
-        tar -xzvf /tmp/SimulIDE.tar.gz -C /opt
-        chmod +x /opt/SimulIDE_1.1.0-SR1_Lin64/simulide
-        ln -sf /opt/SimulIDE_1.1.0-SR1_Lin64/simulide /usr/local/bin/simulide
-        rm -f /tmp/SimulIDE.tar.gz
+    if [ -n "$LATEST_URL" ]; then
+        wget -O /tmp/racket-install.sh "$LATEST_URL" || return 1
+        chmod +x /tmp/racket-install.sh
+        /tmp/racket-install.sh --in-place --dest /opt/racket
+        ln -sf /opt/racket/bin/racket /usr/local/bin/racket
+        rm -f /tmp/racket-install.sh
     fi
-fi
+    command -v racket &>/dev/null
+}
 
 # =====================================================================
-# 25) ARDUINO
+# 18) SWI-Prolog
 # =====================================================================
-echo "Instalando Arduino IDE..."
-sudo snap install arduino || true
-sudo usermod -a -G dialout ${SUDO_USER:-$USER}
+instalar_swipl() {
+    add-apt-repository -y ppa:swi-prolog/stable
+    apt-get update -y
+    apt-get install -y swi-prolog
+    command -v swipl &>/dev/null
+}
 
 # =====================================================================
-# 26) WINE
+# 19) PostgreSQL 17
 # =====================================================================
-echo "Instalando Wine..."
-sudo -E apt-get install -y wine64
-check_install wine
+instalar_postgresql() {
+    echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" \
+        > /etc/apt/sources.list.d/pgdg.list
+    wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - 2>/dev/null || true
+    apt-get update -y
+    apt-get install -y postgresql-17 postgresql-contrib
+    systemctl start postgresql
+    systemctl enable postgresql
+    command -v psql &>/dev/null
+}
 
 # =====================================================================
-# 27) MONGODB
+# 20) pgAdmin
 # =====================================================================
-echo "Instalando MongoDB..."
-if [ ! -f /etc/mongod.conf ]; then
-    curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | sudo gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor
-    echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
-    sudo -E apt-get update -y
-    sudo -E apt-get install -y mongodb-org
-    sudo systemctl start mongod
-    sudo systemctl enable mongod
-fi
-check_install mongod
+instalar_pgadmin() {
+    curl -fsS https://www.pgadmin.org/static/packages_pgadmin_org.pub | \
+        gpg --dearmor -o /usr/share/keyrings/packages-pgadmin-org.gpg
+    echo "deb [signed-by=/usr/share/keyrings/packages-pgadmin-org.gpg] https://ftp.postgresql.org/pub/pgadmin/pgadmin4/apt/$(lsb_release -cs) pgadmin4 main" \
+        > /etc/apt/sources.list.d/pgadmin4.list
+    apt-get update -y
+    apt-get install -y pgadmin4-web pgadmin4-desktop
+    command -v pgadmin4 &>/dev/null || dpkg -l | grep -q pgadmin4
+}
 
 # =====================================================================
-# 28) R e RSTUDIO
+# 21) MySQL Workbench
 # =====================================================================
-echo "Instalando R e RStudio..."
-sudo -E apt-get install -y --no-install-recommends software-properties-common dirmngr
-wget -qO- https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc | sudo tee -a /etc/apt/trusted.gpg.d/cran_ubuntu_key.asc
-sudo add-apt-repository "deb https://cloud.r-project.org/bin/linux/ubuntu $(lsb_release -cs)-cran40/" -y
-sudo -E apt-get update -y
-sudo -E apt-get install -y --no-install-recommends r-base r-base-dev
-wget https://download1.rstudio.org/electron/jammy/amd64/rstudio-2024.04.2-764-amd64.deb -O /tmp/rstudio.deb || true
-if [ -f /tmp/rstudio.deb ]; then
-    sudo -E gdebi -n /tmp/rstudio.deb || true
-    rm -f /tmp/rstudio.deb
-fi
-check_install R
-check_install rstudio
+instalar_mysql_workbench() {
+    wget http://cdn.mysql.com/Downloads/MySQLGUITools/mysql-workbench-community_8.0.34-1ubuntu22.04_amd64.deb \
+        -O /tmp/mysql-workbench.deb || return 1
+    dpkg -i /tmp/mysql-workbench.deb || apt-get -f install -y
+    rm -f /tmp/mysql-workbench.deb
+    command -v mysql-workbench &>/dev/null
+}
 
 # =====================================================================
-# 29) NODE.JS
+# 22) NetBeans
 # =====================================================================
-echo "Instalando Node.js..."
-mkdir -p /etc/apt/keyrings
-curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
-echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | sudo tee /etc/apt/sources.list.d/nodesource.list
-sudo -E apt-get update -y
-sudo -E apt-get install -y nodejs
-mkdir -p /opt/npm
-chown -R ${SUDO_USER:-$USER}:${SUDO_USER:-$USER} /opt/npm
-npm install -g @angular/cli || true
-check_install node
+instalar_netbeans() {
+    apt-get install -y openjdk-17-jdk
+    snap install netbeans --classic || true
+    snap list netbeans &>/dev/null
+}
 
 # =====================================================================
-# 30) PYTHON
+# 23) Greenfoot
 # =====================================================================
-echo "Configurando Python..."
-sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
-sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 2
-sudo -E apt-get install -y python3.10-venv python3.11-venv
+instalar_greenfoot() {
+    snap install greenfoot || true
+    snap list greenfoot &>/dev/null
+}
 
 # =====================================================================
-# 31) SNAPS DE IDES
+# 24) SimulIDE
 # =====================================================================
-echo "Instalando snaps (IDEs)..."
-sudo snap install eclipse --classic || true
-sudo snap install intellij-idea-community --classic || true
-sudo snap install mongo33 || true
-sudo snap install bluej || true
+instalar_simulide() {
+    apt-get install -y fuse libfuse2 libqt5core5a libqt5gui5 libqt5widgets5 libqt5network5 \
+        libqt5svg5 qtbase5-dev qttools5-dev-tools libqt5serialport5 libqt5serialport5-dev
+
+    megadl "https://mega.nz/file/8akRDCYJ#8Fvn6U9RIJ-sX_f49fCsn05YTUr5ySNycoFlxVFX-iE" \
+        -o /tmp/SimulIDE.tar.gz || return 1
+
+    [ -f /tmp/SimulIDE.tar.gz ] || return 1
+
+    tar -xzvf /tmp/SimulIDE.tar.gz -C /opt
+    chmod +x /opt/SimulIDE_1.1.0-SR1_Lin64/simulide
+    ln -sf /opt/SimulIDE_1.1.0-SR1_Lin64/simulide /usr/local/bin/simulide
+    rm -f /tmp/SimulIDE.tar.gz
+    [ -x /usr/local/bin/simulide ]
+}
 
 # =====================================================================
-# 32) FLUTTER
+# 25) Arduino
 # =====================================================================
-echo "Instalando Flutter..."
-if [ ! -d "/opt/flutter" ]; then
-    wget https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.10.5-stable.tar.xz -O /tmp/flutter.tar.xz
+instalar_arduino() {
+    snap install arduino || true
+    usermod -a -G dialout ${SUDO_USER:-$USER} 2>/dev/null || true
+    snap list arduino &>/dev/null
+}
+
+# =====================================================================
+# 26) Wine
+# =====================================================================
+instalar_wine() {
+    apt-get install -y wine64
+    command -v wine &>/dev/null
+}
+
+# =====================================================================
+# 27) MongoDB
+# =====================================================================
+instalar_mongodb() {
+    curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | \
+        gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor
+    echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" \
+        > /etc/apt/sources.list.d/mongodb-org-7.0.list
+    apt-get update -y
+    apt-get install -y mongodb-org
+    systemctl start mongod
+    systemctl enable mongod
+    command -v mongod &>/dev/null
+}
+
+# =====================================================================
+# 28) R e RStudio
+# =====================================================================
+instalar_r() {
+    apt-get install -y --no-install-recommends software-properties-common dirmngr
+    wget -qO- https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc | \
+        tee -a /etc/apt/trusted.gpg.d/cran_ubuntu_key.asc
+    add-apt-repository "deb https://cloud.r-project.org/bin/linux/ubuntu $(lsb_release -cs)-cran40/" -y
+    apt-get update -y
+    apt-get install -y --no-install-recommends r-base r-base-dev
+
+    wget https://download1.rstudio.org/electron/jammy/amd64/rstudio-2024.04.2-764-amd64.deb \
+        -O /tmp/rstudio.deb || true
+
+    if [ -f /tmp/rstudio.deb ]; then
+        gdebi -n /tmp/rstudio.deb || apt-get -f install -y
+        rm -f /tmp/rstudio.deb
+    fi
+    command -v R &>/dev/null
+}
+
+# =====================================================================
+# 29) Node.js
+# =====================================================================
+instalar_nodejs() {
+    mkdir -p /etc/apt/keyrings
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | \
+        gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" \
+        > /etc/apt/sources.list.d/nodesource.list
+    apt-get update -y
+    apt-get install -y nodejs
+
+    mkdir -p /opt/npm
+    chown -R ${SUDO_USER:-$USER}:${SUDO_USER:-$USER} /opt/npm
+    npm install -g @angular/cli || true
+    command -v node &>/dev/null
+}
+
+# =====================================================================
+# 30) Python
+# =====================================================================
+instalar_python() {
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 2
+    apt-get install -y python3.10-venv python3.11-venv
+    command -v python3 &>/dev/null
+}
+
+# =====================================================================
+# 31) Snaps de IDEs
+# =====================================================================
+instalar_snaps_ides() {
+    snap install eclipse --classic || true
+    snap install intellij-idea-community --classic || true
+    snap install mongo33 || true
+    snap install bluej || true
+    # Considera OK se pelo menos o eclipse instalou
+    snap list eclipse &>/dev/null
+}
+
+# =====================================================================
+# 32) Flutter
+# =====================================================================
+instalar_flutter() {
+    wget https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.10.5-stable.tar.xz \
+        -O /tmp/flutter.tar.xz || return 1
     tar xf /tmp/flutter.tar.xz -C /opt
     chown -R ${SUDO_USER:-$USER}:${SUDO_USER:-$USER} /opt/flutter
     rm -f /tmp/flutter.tar.xz
-fi
-check_install flutter
+    [ -x /opt/flutter/bin/flutter ]
+}
 
 # =====================================================================
-# 33) NAND2TETRIS
+# 33) Nand2Tetris
 # =====================================================================
-echo "Instalando Nand2Tetris..."
-if [ ! -d "/opt/nand2tetris" ]; then
-    wget --no-check-certificate https://nuvem.ufba.br/s/ykUB6F81M5z2Ef1/download -O /tmp/nand2tetris.zip
-    unzip /tmp/nand2tetris.zip -d /opt
+instalar_nand2tetris() {
+    wget --no-check-certificate https://nuvem.ufba.br/s/ykUB6F81M5z2Ef1/download \
+        -O /tmp/nand2tetris.zip || return 1
+    unzip -o /tmp/nand2tetris.zip -d /opt
     rm -f /tmp/nand2tetris.zip
-fi
+    [ -d /opt/nand2tetris ]
+}
 
 # =====================================================================
-# 34) GOOGLE CHROME (instalar)
+# 34) Google Chrome
 # =====================================================================
-echo "Instalando Google Chrome..."
-if ! command -v google-chrome &>/dev/null; then
-    wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb
-    sudo -E dpkg -i /tmp/chrome.deb || sudo -E apt-get -f install -y
+instalar_chrome() {
+    wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
+        -O /tmp/chrome.deb || return 1
+    dpkg -i /tmp/chrome.deb || apt-get -f install -y
     rm -f /tmp/chrome.deb
-fi
-check_install google-chrome
+    command -v google-chrome &>/dev/null
+}
 
 # =====================================================================
-# 35) ANDROID STUDIO
+# 35) Android Studio
 # =====================================================================
-echo "Instalando Android Studio..."
-if [ ! -f /usr/local/sbin/android.sh ]; then
+instalar_android_studio() {
     if [ ! -d /opt/Android ]; then
-        wget https://nuvem.ufba.br/s/FjNaDukULOwHhs4/download -O /tmp/Android.tar.bz2
+        wget https://nuvem.ufba.br/s/FjNaDukULOwHhs4/download -O /tmp/Android.tar.bz2 || return 1
         tar xjf /tmp/Android.tar.bz2 -C /opt
         rm -f /tmp/Android.tar.bz2
         ln -sf /opt/Android ${SUDO_USER:-$USER}/Android 2>/dev/null || true
     fi
+
     if ! snap list | grep -q android-studio; then
-        sudo snap install android-studio --classic
+        snap install android-studio --classic || true
     fi
+
     if [ ! -d /opt/gradle ]; then
-        wget https://nuvem.ufba.br/s/U5anBL3tRpN2xhT/download -O /tmp/gradle.tar.bz2
+        wget https://nuvem.ufba.br/s/U5anBL3tRpN2xhT/download -O /tmp/gradle.tar.bz2 || return 1
         tar xjf /tmp/gradle.tar.bz2 -C /opt
-        mv /opt/.gradle /opt/gradle
-        chown -R ${SUDO_USER:-$USER}:${SUDO_USER:-$USER} /opt/gradle
+        mv /opt/.gradle /opt/gradle 2>/dev/null || true
+        chown -R ${SUDO_USER:-$USER}:${SUDO_USER:-$USER} /opt/gradle 2>/dev/null || true
         rm -f /tmp/gradle.tar.bz2
     fi
-    sudo touch /usr/local/sbin/android.sh
-fi
+
+    [ -d /opt/Android ] && [ -d /opt/gradle ]
+}
 
 # =====================================================================
-# 36) UNITY HUB
+# 36) Unity Hub
 # =====================================================================
-echo "Instalando Unity Hub..."
-sudo add-apt-repository -y ppa:dotnet/backports
-wget -qO - https://hub.unity3d.com/linux/keys/public | gpg --dearmor | sudo tee /usr/share/keyrings/Unity_Technologies_ApS.gpg > /dev/null
-sudo sh -c 'echo "deb [signed-by=/usr/share/keyrings/Unity_Technologies_ApS.gpg] https://hub.unity3d.com/linux/repos/deb stable main" > /etc/apt/sources.list.d/unityhub.list'
-sudo -E apt-get update -y
-sudo -E apt-get install -y unityhub dotnet-sdk-9.0
-check_install unityhub
+instalar_unityhub() {
+    add-apt-repository -y ppa:dotnet/backports
+    wget -qO - https://hub.unity3d.com/linux/keys/public | \
+        gpg --dearmor | tee /usr/share/keyrings/Unity_Technologies_ApS.gpg > /dev/null
+    echo "deb [signed-by=/usr/share/keyrings/Unity_Technologies_ApS.gpg] https://hub.unity3d.com/linux/repos/deb stable main" \
+        > /etc/apt/sources.list.d/unityhub.list
+    apt-get update -y
+    apt-get install -y unityhub dotnet-sdk-9.0
+    command -v unityhub &>/dev/null
+}
 
 # =====================================================================
-# 37) FRAME0
+# 37) Frame0
 # =====================================================================
-echo "Instalando Frame0..."
-if ! dpkg -l | grep -q frame0; then
-    wget https://files.frame0.app/releases/linux/x64/frame0_1.0.0~beta.8_amd64.deb -O /tmp/frame0.deb || true
-    if [ -f /tmp/frame0.deb ]; then
-        sudo -E dpkg -i /tmp/frame0.deb || sudo -E apt-get -f install -y
-        rm -f /tmp/frame0.deb
+instalar_frame0() {
+    wget https://files.frame0.app/releases/linux/x64/frame0_1.0.0~beta.8_amd64.deb \
+        -O /tmp/frame0.deb || return 1
+    dpkg -i /tmp/frame0.deb || apt-get -f install -y
+    rm -f /tmp/frame0.deb
+    dpkg -l | grep -q frame0
+}
+
+# =====================================================================
+# 38) Firefox
+# =====================================================================
+instalar_firefox() {
+    # 38.1) Matar processos
+    pkill -9 firefox 2>/dev/null || true
+    sleep 1
+
+    # 38.2) Remover wrapper transitional
+    if dpkg -l | grep -q "^ii  firefox "; then
+        apt-get remove -y firefox 2>/dev/null || true
     fi
-fi
 
-# =====================================================================
-# 38) FIREFOX — remover wrapper/snap e instalar .deb
-# =====================================================================
-echo ""
-echo "=================================================="
-echo " FIREFOX: Removendo wrapper/snap e instalando .deb"
-echo "=================================================="
+    # 38.3) Remover snap
+    if snap list firefox &>/dev/null; then
+        snap remove firefox 2>/dev/null || true
+        sleep 2
+    fi
 
-# 38.1) Matar processos
-pkill -9 firefox 2>/dev/null || true
-sleep 1
-
-# 38.2) Remover o wrapper transitional (que aponta pro snap)
-if dpkg -l | grep -q "^ii  firefox "; then
-    echo "==> Removendo pacote transitional 'firefox'..."
-    DEBIAN_FRONTEND=noninteractive apt-get remove -y firefox 2>/dev/null || true
-fi
-
-# 38.3) Remover o snap (se existir)
-if snap list firefox &>/dev/null; then
-    echo "==> Removendo Firefox Snap..."
-    snap remove firefox 2>/dev/null || true
-    sleep 2
-fi
-
-# 38.4) Bloquear reinstalação automática do snap pelo Ubuntu
-echo "==> Bloqueando snap do Firefox..."
-mkdir -p /etc/apt/preferences.d
-cat > /etc/apt/preferences.d/firefox-no-snap <<'EOF'
+    # 38.4) Bloquear snap
+    mkdir -p /etc/apt/preferences.d
+    cat > /etc/apt/preferences.d/firefox-no-snap <<'EOF'
 Package: firefox*
 Pin: release o=Ubuntu*
 Pin-Priority: -1
 EOF
 
-# 38.5) Adicionar PPA da Mozilla
-echo "==> Adicionando PPA da Mozilla..."
-DEBIAN_FRONTEND=noninteractive apt-get install -y software-properties-common
-add-apt-repository -y ppa:mozillateam/ppa
-apt-get update -y
+    # 38.5) PPA Mozilla
+    apt-get install -y software-properties-common
+    add-apt-repository -y ppa:mozillateam/ppa
+    apt-get update -y
 
-# 38.6) Priorizar o .deb do PPA sobre o snap do Ubuntu
-cat > /etc/apt/preferences.d/mozilla-firefox <<'EOF'
+    # 38.6) Priorizar PPA
+    cat > /etc/apt/preferences.d/mozilla-firefox <<'EOF'
 Package: firefox*
 Pin: release o=LP-PPA-mozillateam
 Pin-Priority: 1001
 EOF
 
-# 38.7) Instalar o Firefox .deb
-echo "==> Instalando Firefox .deb..."
-DEBIAN_FRONTEND=noninteractive apt-get install -y firefox --allow-downgrades
+    # 38.7) Instalar .deb
+    apt-get install -y firefox --allow-downgrades
 
-# 38.8) Validar: o binário tem que ser ELF (não um script wrapper)
-if [ -f /usr/bin/firefox ]; then
-    if file /usr/bin/firefox | grep -q "ELF"; then
-        echo "[SUCESSO] Firefox é .deb: $(firefox --version 2>/dev/null || echo '?')"
-    else
-        echo "[AVISO] Firefox ainda é script wrapper — tentando plano B..."
-        echo "         Baixando direto da Mozilla..."
+    # 38.8) Validar ELF
+    if [ -f /usr/bin/firefox ] && file /usr/bin/firefox | grep -q "ELF"; then
+        return 0
+    fi
 
-        # Plano B: baixar .tar.bz2 direto da Mozilla
-        wget -q "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=pt-BR" \
-             -O /tmp/firefox.tar.bz2 || true
+    # 38.9) Plano B: tarball da Mozilla
+    echo "⚠️ PPA falhou — baixando da Mozilla..."
+    wget -q "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=pt-BR" \
+        -O /tmp/firefox.tar.bz2 || return 1
 
-        if [ -f /tmp/firefox.tar.bz2 ]; then
-            tar -xjf /tmp/firefox.tar.bz2 -C /opt
-            rm -f /tmp/firefox.tar.bz2
-            ln -sf /opt/firefox/firefox /usr/local/bin/firefox
+    tar -xjf /tmp/firefox.tar.bz2 -C /opt || return 1
+    rm -f /tmp/firefox.tar.bz2
+    ln -sf /opt/firefox/firefox /usr/local/bin/firefox
 
-            cat > /usr/share/applications/firefox.desktop <<'EOF'
+    cat > /usr/share/applications/firefox.desktop <<'EOF'
 [Desktop Entry]
 Version=1.0
 Name=Firefox
@@ -535,43 +611,15 @@ Categories=Network;WebBrowser;
 MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;
 StartupNotify=true
 EOF
-            echo "[SUCESSO] Firefox instalado via tarball da Mozilla"
-        else
-            echo "[ERRO] Não foi possível baixar o Firefox da Mozilla"
-        fi
-    fi
-else
-    echo "[ERRO] /usr/bin/firefox não existe após a instalação"
-fi
-
-# 38.9) Atalhos na dock (mantém como está)
-echo "==> Criando atalhos na barra lateral..."
-
-if [ -d "/home/aluno" ]; then
-    sudo -u aluno dbus-launch dconf write /org/gnome/shell/favorite-apps \
-        "['firefox.desktop', 'google-chrome.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop']" \
-        2>/dev/null || true
-fi
-
-cat > /etc/profile.d/apps-dock.sh <<'EOF'
-#!/bin/bash
-if [ -n "$DISPLAY" ] && command -v dbus-launch &>/dev/null; then
-    dbus-launch dconf write /org/gnome/shell/favorite-apps \
-        "['firefox.desktop', 'google-chrome.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop']" \
-        2>/dev/null || true
-fi
-EOF
-chmod 644 /etc/profile.d/apps-dock.sh
-
-echo "[SUCESSO] Atalhos configurados"
+    return 0
+}
 
 # =====================================================================
-# 39) ATALHOS NA BARRA LATERAL (dock)
+# 39) Atalhos na dock
 # =====================================================================
-echo "==> Criando atalhos na barra lateral..."
-
-if [ ! -f /usr/share/applications/firefox.desktop ]; then
-    cat > /usr/share/applications/firefox.desktop <<'EOF'
+instalar_atalhos_dock() {
+    if [ ! -f /usr/share/applications/firefox.desktop ]; then
+        cat > /usr/share/applications/firefox.desktop <<'EOF'
 [Desktop Entry]
 Version=1.0
 Name=Firefox
@@ -586,17 +634,16 @@ Categories=Network;WebBrowser;
 MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;
 StartupNotify=true
 EOF
-    chmod 644 /usr/share/applications/firefox.desktop
-fi
+        chmod 644 /usr/share/applications/firefox.desktop
+    fi
 
-if [ -d "/home/aluno" ]; then
-    sudo -u aluno dbus-launch dconf write /org/gnome/shell/favorite-apps \
-        "['firefox.desktop', 'google-chrome.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop']" \
-        2>/dev/null || true
-    echo "==> Atalhos adicionados para o aluno"
-fi
+    if [ -d "/home/aluno" ]; then
+        sudo -u aluno dbus-launch dconf write /org/gnome/shell/favorite-apps \
+            "['firefox.desktop', 'google-chrome.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop']" \
+            2>/dev/null || true
+    fi
 
-cat > /etc/profile.d/apps-dock.sh <<'EOF'
+    cat > /etc/profile.d/apps-dock.sh <<'EOF'
 #!/bin/bash
 if [ -n "$DISPLAY" ] && command -v dbus-launch &>/dev/null; then
     dbus-launch dconf write /org/gnome/shell/favorite-apps \
@@ -604,21 +651,85 @@ if [ -n "$DISPLAY" ] && command -v dbus-launch &>/dev/null; then
         2>/dev/null || true
 fi
 EOF
-chmod 644 /etc/profile.d/apps-dock.sh
-
-echo "[SUCESSO] Atalhos configurados"
+    chmod 644 /etc/profile.d/apps-dock.sh
+    [ -f /etc/profile.d/apps-dock.sh ]
+}
 
 # =====================================================================
-# FIM
+# EXECUÇÃO
+# =====================================================================
+
+echo "=================================================="
+echo " lab-programs.sh v7.0.0"
+echo " Instalando programas com controle de estado"
+echo "=================================================="
+
+instalar_se_preciso "ssh"                instalar_ssh
+instalar_se_preciso "algif-aead-block"   instalar_algif_aead_block
+instalar_se_preciso "release-upgrader"   instalar_release_upgrader
+instalar_se_preciso "quarto"             instalar_quarto
+instalar_se_preciso "system-update"      instalar_system_update
+instalar_se_preciso "clamav"             instalar_clamav
+instalar_se_preciso "remover-termius"    instalar_remover_termius
+instalar_se_preciso "jupyter"            instalar_jupyter
+instalar_se_preciso "docker"             instalar_docker
+instalar_se_preciso "avra"               instalar_avra
+instalar_se_preciso "ollama"             instalar_ollama
+instalar_se_preciso "sublime-text"       instalar_sublime
+instalar_se_preciso "neofetch"           instalar_neofetch
+instalar_se_preciso "vscode"             instalar_vscode
+instalar_se_preciso "obs-studio"         instalar_obs
+instalar_se_preciso "pacotes-essenciais" instalar_pacotes_essenciais
+instalar_se_preciso "octave"             instalar_octave
+instalar_se_preciso "racket"             instalar_racket
+instalar_se_preciso "swi-prolog"         instalar_swipl
+instalar_se_preciso "postgresql"         instalar_postgresql
+instalar_se_preciso "pgadmin"            instalar_pgadmin
+instalar_se_preciso "mysql-workbench"    instalar_mysql_workbench
+instalar_se_preciso "netbeans"           instalar_netbeans
+instalar_se_preciso "greenfoot"          instalar_greenfoot
+instalar_se_preciso "simulide"           instalar_simulide
+instalar_se_preciso "arduino"            instalar_arduino
+instalar_se_preciso "wine"               instalar_wine
+instalar_se_preciso "mongodb"            instalar_mongodb
+instalar_se_preciso "r-rstudio"          instalar_r
+instalar_se_preciso "nodejs"             instalar_nodejs
+instalar_se_preciso "python"             instalar_python
+instalar_se_preciso "snaps-ides"         instalar_snaps_ides
+instalar_se_preciso "flutter"            instalar_flutter
+instalar_se_preciso "nand2tetris"        instalar_nand2tetris
+instalar_se_preciso "google-chrome"      instalar_chrome
+instalar_se_preciso "android-studio"     instalar_android_studio
+instalar_se_preciso "unityhub"           instalar_unityhub
+instalar_se_preciso "frame0"             instalar_frame0
+instalar_se_preciso "firefox"            instalar_firefox
+instalar_se_preciso "atalhos-dock"       instalar_atalhos_dock
+
+# =====================================================================
+# RESUMO FINAL
 # =====================================================================
 echo ""
 echo "=================================================="
-echo " ✅ Instalação de programas concluída"
+echo " ✅ Instalação concluída"
 echo "=================================================="
+echo ""
+echo "Programas instalados (com selo):"
+ls "$STATE" 2>/dev/null | sed 's/^/  ✅ /'
+echo ""
+echo "Total: $(ls "$STATE" 2>/dev/null | wc -l) programas"
+echo ""
+echo "=================================================="
+echo " Como usar:"
+echo "=================================================="
+echo "  Listar instalados:      ls $STATE/"
+echo "  Forçar reinstalação:    rm $STATE/NOME"
+echo "  Ex: forçar Firefox:     rm $STATE/firefox"
+echo "                          systemctl restart labstartup"
 echo ""
 echo "Firefox:"
-readlink -f $(which firefox) 2>/dev/null || echo "  (não instalado)"
+readlink -f "$(which firefox 2>/dev/null)" 2>/dev/null || echo "  (não instalado)"
 echo ""
 echo "Chrome:"
 command -v google-chrome 2>/dev/null || echo "  (não instalado)"
 echo ""
+echo "=================================================="
