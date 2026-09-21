@@ -656,6 +656,14 @@ EOF
 }
 
 # =====================================================================
+# 40) VLC Media Player
+# =====================================================================
+instalar_vlc() {
+    apt-get install -y vlc
+    command -v vlc &>/dev/null
+}
+
+# =====================================================================
 # EXECUÇÃO
 # =====================================================================
 
@@ -704,6 +712,7 @@ instalar_se_preciso "unityhub"           instalar_unityhub
 instalar_se_preciso "frame0"             instalar_frame0
 instalar_se_preciso "firefox"            instalar_firefox
 instalar_se_preciso "atalhos-dock"       instalar_atalhos_dock
+instalar_se_preciso "vlc"                instalar_vlc
 
 # =====================================================================
 # RESUMO FINAL
