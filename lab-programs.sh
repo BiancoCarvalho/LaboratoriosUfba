@@ -1,7 +1,7 @@
 #!/bin/bash
 # =====================================================================
 #  lab-programs.sh
-#  v8.0.0
+#  v8.0.1
 #
 #  Instala todos os programas do laboratório.
 #  Cada programa tem um SELO em /usr/local/sbin/.lab-state/NOME.
@@ -10,6 +10,8 @@
 #  - Se falhar         → NÃO cria o selo → tenta de novo no próximo boot
 #
 #  IDEMPOTENTE: limpa resíduos antes de instalar.
+#
+#  v8.0.1: Firefox agora é instalado via SNAP (método .deb/PPA removido).
 # =====================================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -617,111 +619,61 @@ instalar_frame0() {
 }
 
 # =====================================================================
-# 38) Firefox (IDEMPOTENTE — trata ii, rc, iU, iF)
+# 38) Firefox (via SNAP — v8.0.1)
 # =====================================================================
 instalar_firefox() {
     echo ""
     echo "=================================================="
-    echo " FIREFOX: Removendo wrapper/snap e instalando .deb"
+    echo " FIREFOX: instalando via snap"
     echo "=================================================="
 
     # 38.1) Matar processos
     pkill -9 firefox 2>/dev/null || true
     sleep 1
 
-    # 38.2) Limpar QUALQUER resíduo do pacote firefox (ii, rc, iU, iF)
-    echo "==> Limpando resíduos do pacote firefox..."
+    # 38.2) Remover qualquer resíduo do método .deb/PPA antigo
+    echo "==> Removendo resíduos do Firefox .deb (se houver)..."
     if dpkg -l firefox 2>/dev/null | grep -qE "^(ii|rc|iU|iF|hi|hr)"; then
         apt-get purge -y firefox 2>/dev/null || true
         apt-get autoremove -y 2>/dev/null || true
-        apt-get autoclean 2>/dev/null || true
     fi
     dpkg --purge --force-all firefox 2>/dev/null || true
 
-    # 38.3) Remover o snap
-    if snap list firefox &>/dev/null; then
-        echo "==> Removendo Firefox Snap..."
-        snap remove firefox 2>/dev/null || true
-        sleep 2
-    fi
-
-    # 38.4) Limpar repositórios e chaves antigas
-    echo "==> Limpando repositórios antigos..."
-    rm -f /etc/apt/sources.list.d/*mozilla* 2>/dev/null
-    rm -f /etc/apt/sources.list.d/*firefox* 2>/dev/null
-    rm -f /etc/apt/preferences.d/firefox-no-snap 2>/dev/null
-    rm -f /etc/apt/preferences.d/mozilla-firefox 2>/dev/null
+    # 38.3) Limpar PPAs, pins e chaves antigas da Mozilla
+    echo "==> Limpando repositórios/pins antigos..."
+    rm -f /etc/apt/sources.list.d/*mozilla*        2>/dev/null
+    rm -f /etc/apt/sources.list.d/*firefox*        2>/dev/null
+    rm -f /etc/apt/preferences.d/firefox-no-snap   2>/dev/null
+    rm -f /etc/apt/preferences.d/mozilla-firefox   2>/dev/null
     rm -f /usr/share/keyrings/packages.mozilla.org.gpg 2>/dev/null
-    rm -f /etc/apt/keyrings/packages.mozilla.org.gpg 2>/dev/null
+    rm -f /etc/apt/keyrings/packages.mozilla.org.gpg   2>/dev/null
 
-    # 38.5) Bloquear snap
-    mkdir -p /etc/apt/preferences.d
-    cat > /etc/apt/preferences.d/firefox-no-snap <<'EOF'
-Package: firefox*
-Pin: release o=Ubuntu*
-Pin-Priority: -1
-EOF
+    # 38.4) Limpar tarball antigo em /opt (se houver)
+    rm -rf /opt/firefox
+    rm -f  /usr/local/bin/firefox
 
-    # 38.6) PPA da Mozilla
-    echo "==> Adicionando PPA da Mozilla..."
-    apt-get install -y software-properties-common 2>/dev/null || true
-    add-apt-repository -y ppa:mozillateam/ppa 2>/dev/null || true
-    apt-get update -y 2>/dev/null || true
+    # 38.5) Instalar snap do Firefox
+    echo "==> Instalando Firefox via snap..."
+    snap install firefox || true
 
-    # 38.7) Priorizar PPA
-    cat > /etc/apt/preferences.d/mozilla-firefox <<'EOF'
-Package: firefox*
-Pin: release o=LP-PPA-mozillateam
-Pin-Priority: 1001
-EOF
-
-    # 38.8) Instalar .deb
-    echo "==> Instalando Firefox .deb..."
-    apt-get install -y firefox --allow-downgrades 2>/dev/null || true
-
-    # 38.9) Validar ELF
-    if [ -f /usr/bin/firefox ] && file /usr/bin/firefox | grep -q "ELF"; then
-        echo "[SUCESSO] Firefox é .deb: $(firefox --version 2>/dev/null || echo '?')"
+    # 38.6) Validar
+    if snap list firefox &>/dev/null; then
+        echo "[SUCESSO] Firefox snap instalado: $(snap list firefox | awk 'NR==2{print $2}')"
         return 0
     fi
 
-    # 38.10) Plano B: tarball da Mozilla
-    echo "⚠️ PPA falhou — baixando tarball da Mozilla..."
-    rm -f /tmp/firefox.tar.bz2
-    wget -q "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=pt-BR" \
-        -O /tmp/firefox.tar.bz2 2>/dev/null || return 1
-
-    [ -s /tmp/firefox.tar.bz2 ] || return 1
-
-    rm -rf /opt/firefox
-    tar -xjf /tmp/firefox.tar.bz2 -C /opt 2>/dev/null || return 1
-    rm -f /tmp/firefox.tar.bz2
-    ln -sf /opt/firefox/firefox /usr/local/bin/firefox
-
-    cat > /usr/share/applications/firefox.desktop <<'EOF'
-[Desktop Entry]
-Version=1.0
-Name=Firefox
-Name[pt_BR]=Firefox
-Comment=Navegador Web
-Comment[pt_BR]=Navegador Web
-Exec=/opt/firefox/firefox %u
-Terminal=false
-Type=Application
-Icon=/opt/firefox/browser/chrome/icons/default/default128.png
-Categories=Network;WebBrowser;
-MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;
-StartupNotify=true
-EOF
-
-    [ -x /opt/firefox/firefox ]
+    echo "❌ Falha ao instalar o snap do Firefox"
+    return 1
 }
 
 # =====================================================================
 # 39) Atalhos na dock
 # =====================================================================
 instalar_atalhos_dock() {
-    if [ ! -f /usr/share/applications/firefox.desktop ]; then
+    # Firefox snap cria /var/lib/snapd/desktop/applications/firefox_firefox.desktop
+    # Se não existir um .desktop próprio, cria um apontando pro snap.
+    if [ ! -f /usr/share/applications/firefox.desktop ] && \
+       [ ! -f /var/lib/snapd/desktop/applications/firefox_firefox.desktop ]; then
         cat > /usr/share/applications/firefox.desktop <<'EOF'
 [Desktop Entry]
 Version=1.0
@@ -729,10 +681,10 @@ Name=Firefox
 Name[pt_BR]=Firefox
 Comment=Navegador Web
 Comment[pt_BR]=Navegador Web
-Exec=/usr/bin/firefox %u
+Exec=/snap/bin/firefox %u
 Terminal=false
 Type=Application
-Icon=firefox
+Icon=/snap/firefox/current/default256.png
 Categories=Network;WebBrowser;
 MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;
 StartupNotify=true
@@ -742,7 +694,7 @@ EOF
 
     if [ -d "/home/aluno" ]; then
         sudo -u aluno dbus-launch dconf write /org/gnome/shell/favorite-apps \
-            "['firefox.desktop', 'google-chrome.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop']" \
+            "['firefox_firefox.desktop', 'google-chrome.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop']" \
             2>/dev/null || true
     fi
 
@@ -750,7 +702,7 @@ EOF
 #!/bin/bash
 if [ -n "$DISPLAY" ] && command -v dbus-launch &>/dev/null; then
     dbus-launch dconf write /org/gnome/shell/favorite-apps \
-        "['firefox.desktop', 'google-chrome.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop']" \
+        "['firefox_firefox.desktop', 'google-chrome.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop']" \
         2>/dev/null || true
 fi
 EOF
@@ -771,7 +723,7 @@ instalar_vlc() {
 # =====================================================================
 
 echo "=================================================="
-echo " lab-programs.sh v8.0.0"
+echo " lab-programs.sh v8.0.1"
 echo " Instalando programas com controle de estado"
 echo "=================================================="
 
