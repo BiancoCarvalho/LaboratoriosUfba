@@ -453,25 +453,32 @@ if ! dpkg -l | grep -q frame0; then
 fi
 
 # =====================================================================
-# 38) FIREFOX — remover Snap e instalar .deb
+# 38) FIREFOX — remover wrapper/snap e instalar .deb
 # =====================================================================
 echo ""
 echo "=================================================="
-echo " FIREFOX: Removendo Snap e instalando .deb"
+echo " FIREFOX: Removendo wrapper/snap e instalando .deb"
 echo "=================================================="
 
+# 38.1) Matar processos
 pkill -9 firefox 2>/dev/null || true
 sleep 1
 
-if snap list firefox &>/dev/null; then
-    echo "==> Removendo Firefox Snap..."
-    snap remove firefox || true
-    sleep 2
-else
-    echo "==> Firefox Snap não está instalado"
+# 38.2) Remover o wrapper transitional (que aponta pro snap)
+if dpkg -l | grep -q "^ii  firefox "; then
+    echo "==> Removendo pacote transitional 'firefox'..."
+    DEBIAN_FRONTEND=noninteractive apt-get remove -y firefox 2>/dev/null || true
 fi
 
-echo "==> Bloqueando reinstalação automática do Snap..."
+# 38.3) Remover o snap (se existir)
+if snap list firefox &>/dev/null; then
+    echo "==> Removendo Firefox Snap..."
+    snap remove firefox 2>/dev/null || true
+    sleep 2
+fi
+
+# 38.4) Bloquear reinstalação automática do snap pelo Ubuntu
+echo "==> Bloqueando snap do Firefox..."
 mkdir -p /etc/apt/preferences.d
 cat > /etc/apt/preferences.d/firefox-no-snap <<'EOF'
 Package: firefox*
@@ -479,29 +486,84 @@ Pin: release o=Ubuntu*
 Pin-Priority: -1
 EOF
 
+# 38.5) Adicionar PPA da Mozilla
 echo "==> Adicionando PPA da Mozilla..."
+DEBIAN_FRONTEND=noninteractive apt-get install -y software-properties-common
 add-apt-repository -y ppa:mozillateam/ppa
 apt-get update -y
 
+# 38.6) Priorizar o .deb do PPA sobre o snap do Ubuntu
 cat > /etc/apt/preferences.d/mozilla-firefox <<'EOF'
 Package: firefox*
 Pin: release o=LP-PPA-mozillateam
 Pin-Priority: 1001
 EOF
 
+# 38.7) Instalar o Firefox .deb
 echo "==> Instalando Firefox .deb..."
-apt-get install -y firefox --allow-downgrades
+DEBIAN_FRONTEND=noninteractive apt-get install -y firefox --allow-downgrades
 
-if command -v firefox &>/dev/null; then
-    FIREFOX_PATH=$(readlink -f $(which firefox))
-    if echo "$FIREFOX_PATH" | grep -q "/snap/"; then
-        echo "[AVISO] Firefox ainda é Snap: $FIREFOX_PATH"
+# 38.8) Validar: o binário tem que ser ELF (não um script wrapper)
+if [ -f /usr/bin/firefox ]; then
+    if file /usr/bin/firefox | grep -q "ELF"; then
+        echo "[SUCESSO] Firefox é .deb: $(firefox --version 2>/dev/null || echo '?')"
     else
-        echo "[SUCESSO] Firefox é .deb: $FIREFOX_PATH"
+        echo "[AVISO] Firefox ainda é script wrapper — tentando plano B..."
+        echo "         Baixando direto da Mozilla..."
+
+        # Plano B: baixar .tar.bz2 direto da Mozilla
+        wget -q "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=pt-BR" \
+             -O /tmp/firefox.tar.bz2 || true
+
+        if [ -f /tmp/firefox.tar.bz2 ]; then
+            tar -xjf /tmp/firefox.tar.bz2 -C /opt
+            rm -f /tmp/firefox.tar.bz2
+            ln -sf /opt/firefox/firefox /usr/local/bin/firefox
+
+            cat > /usr/share/applications/firefox.desktop <<'EOF'
+[Desktop Entry]
+Version=1.0
+Name=Firefox
+Name[pt_BR]=Firefox
+Comment=Navegador Web
+Comment[pt_BR]=Navegador Web
+Exec=/opt/firefox/firefox %u
+Terminal=false
+Type=Application
+Icon=/opt/firefox/browser/chrome/icons/default/default128.png
+Categories=Network;WebBrowser;
+MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;
+StartupNotify=true
+EOF
+            echo "[SUCESSO] Firefox instalado via tarball da Mozilla"
+        else
+            echo "[ERRO] Não foi possível baixar o Firefox da Mozilla"
+        fi
     fi
 else
-    echo "[ERRO] Firefox não encontrado"
+    echo "[ERRO] /usr/bin/firefox não existe após a instalação"
 fi
+
+# 38.9) Atalhos na dock (mantém como está)
+echo "==> Criando atalhos na barra lateral..."
+
+if [ -d "/home/aluno" ]; then
+    sudo -u aluno dbus-launch dconf write /org/gnome/shell/favorite-apps \
+        "['firefox.desktop', 'google-chrome.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop']" \
+        2>/dev/null || true
+fi
+
+cat > /etc/profile.d/apps-dock.sh <<'EOF'
+#!/bin/bash
+if [ -n "$DISPLAY" ] && command -v dbus-launch &>/dev/null; then
+    dbus-launch dconf write /org/gnome/shell/favorite-apps \
+        "['firefox.desktop', 'google-chrome.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop']" \
+        2>/dev/null || true
+fi
+EOF
+chmod 644 /etc/profile.d/apps-dock.sh
+
+echo "[SUCESSO] Atalhos configurados"
 
 # =====================================================================
 # 39) ATALHOS NA BARRA LATERAL (dock)
