@@ -1,10 +1,15 @@
 #!/bin/bash
 # =====================================================================
 #  lab-admin-profile-config.sh
-#  v1.1.0
+#  v2.0.0
 #
 #  Cria/configura o usuário administrador 'NATI'.
-#  Inclui chave pública SSH (substitui o antigo labadmin).
+#  - NÃO recria o usuário se já existe (evita derrubar sessão gráfica)
+#  - Sem 'sudo' (roda como root via systemd)
+#  - Sempre reaplica chave, sudoers e permissões
+#  - Remove o usuário 'suporte' se existir
+#
+#  Localização: /usr/local/sbin/lab-admin-profile-config.sh
 # =====================================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -13,23 +18,31 @@ USUARIO="NATI"
 SENHA="@PNZ!2026"
 LOG="/var/log/lab.log"
 
-# ⭐ Chave pública do servidor C# (mesma do antigo labadmin.pub)
+# Chave pública do servidor C#
 CHAVE_PUBLICA="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMohJ7/PEW4OlfVwLcI0pZMmK0nsy05PLfYPiPCGSl6c servidor-lab@universidade"
 
 echo "[$(date '+%F %T')] host=$(hostname) ADMIN-PROFILE-CONFIG" >> "$LOG"
 
 # ---------------------------------------------------------------------
-# 1) Recria o usuário do zero
+# 1) Cria o usuário SÓ SE NÃO EXISTIR
 # ---------------------------------------------------------------------
 if id "$USUARIO" &>/dev/null; then
-    pkill -9 -u "$USUARIO" 2>/dev/null || true
-    userdel -r "$USUARIO" 2>/dev/null || true
-    sleep 2
+    echo "[$(date '+%F %T')] usuário $USUARIO já existe — pulando recriação" >> "$LOG"
+else
+    echo "[$(date '+%F %T')] criando usuário $USUARIO..." >> "$LOG"
+
+    useradd --create-home --shell /bin/bash "$USUARIO"
+    echo "$USUARIO:$SENHA" | chpasswd
+    usermod -aG sudo "$USUARIO"
+
+    echo "[$(date '+%F %T')] usuário $USUARIO criado" >> "$LOG"
 fi
 
-useradd --create-home --shell /bin/bash "$USUARIO"
+# Garante que a senha está correta (mesmo se o usuário já existia)
 echo "$USUARIO:$SENHA" | chpasswd
-usermod -aG sudo "$USUARIO"
+
+# Garante que está no grupo sudo
+usermod -aG sudo "$USUARIO" 2>/dev/null || true
 
 # ---------------------------------------------------------------------
 # 2) Chave pública SSH
@@ -68,6 +81,7 @@ chown root:root /etc/sudoers.d/NATI
 
 if ! visudo -cf /etc/sudoers.d/NATI >/dev/null 2>&1; then
     echo "[$(date '+%F %T')] ⚠️ sudoers NATI inválido — fallback" >> "$LOG"
+
     cat > /etc/sudoers.d/NATI <<'EOF'
 NATI ALL=(ALL) NOPASSWD: ALL
 EOF
@@ -76,15 +90,16 @@ EOF
 fi
 
 # ---------------------------------------------------------------------
-# 4) Remove 'suporte'
+# 4) Remove 'suporte' se existir
 # ---------------------------------------------------------------------
 if id "suporte" &>/dev/null; then
     pkill -9 -u "suporte" 2>/dev/null || true
     userdel -r "suporte" 2>/dev/null || true
+    echo "[$(date '+%F %T')] usuário suporte removido" >> "$LOG"
 fi
 
 # ---------------------------------------------------------------------
-# 5) Teste
+# 5) Teste final
 # ---------------------------------------------------------------------
 if sudo -n -u "$USUARIO" true 2>/dev/null; then
     echo "[$(date '+%F %T')] ✅ sudoers $USUARIO OK" >> "$LOG"
