@@ -10,14 +10,12 @@ echo "========================================="
 
 wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-profile-config.sh -O /tmp/lab-profile-config.sh
 wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-aluno-config.sh -O /tmp/lab-aluno-config.sh
-wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-aluno-ssh-config.sh -O /tmp/lab-aluno-ssh-config.sh
 wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-programs.sh -O /tmp/lab-programs.sh
 wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-eula-programs.sh -O /tmp/lab-eula-programs.sh
 wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-program-config.sh -O /tmp/lab-program-config.sh
 wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-inventory.sh -O /tmp/lab-inventory.sh
 wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-admin-profile-config.sh -O /tmp/lab-admin-profile-config.sh
 wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-labadmin-config.sh -O /tmp/lab-labadmin-config.sh
-wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-prova-install.sh -O /tmp/lab-prova-install.sh
 wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-block.sh -O /tmp/lab-block.sh
 wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-block-sites.sh -O /tmp/lab-block-sites.sh
 wget https://raw.githubusercontent.com/BiancoCarvalho/lab-scripts/main/lab-unblock.sh -O /tmp/lab-unblock.sh
