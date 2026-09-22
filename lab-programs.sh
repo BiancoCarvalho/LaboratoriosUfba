@@ -338,15 +338,68 @@ instalar_racket() {
 }
 
 # =====================================================================
-# 18) SWI-Prolog
+# 18) SWI-PROLOG
 # =====================================================================
-instalar_swipl() {
-    add-apt-repository -y ppa:swi-prolog/stable
-    apt-get update -y
-    apt-get install -y swi-prolog
-    command -v swipl &>/dev/null
-}
+echo "Verificando SWI-Prolog..."
 
+# 18.1) Verifica se o apt está OK antes de começar
+if ! apt-get update >/dev/null 2>&1; then
+    echo "⚠️ apt com problema — tentando consertar..."
+    dpkg --configure -a 2>/dev/null
+    apt-get --fix-broken install -y 2>/dev/null
+    apt-get update -y 2>/dev/null
+fi
+
+# 18.2) Se o swipl já está instalado, pula
+if command -v swipl &>/dev/null; then
+    echo "✅ SWI-Prolog já instalado: $(swipl --version 2>/dev/null | head -1)"
+else
+    echo "==> Instalando SWI-Prolog..."
+
+    # 18.3) Adiciona o PPA
+    add-apt-repository -y ppa:swi-prolog/stable 2>/dev/null
+
+    # 18.4) Atualiza
+    apt-get update -y
+
+    # 18.5) Tenta instalar o swi-prolog completo
+    if ! apt-get install -y swi-prolog 2>/dev/null; then
+
+        echo "⚠️ Instalação normal falhou — tentando com force-overwrite..."
+
+        # 18.6) Remove o swi-prolog-core antigo (conflito)
+        apt-get remove -y swi-prolog-core 2>/dev/null
+        apt-get autoremove -y 2>/dev/null
+
+        # 18.7) Tenta de novo
+        if ! apt-get install -y swi-prolog 2>/dev/null; then
+
+            echo "⚠️ Ainda falhou — usando force-overwrite no dpkg..."
+
+            # 18.8) Força a instalação do pacote baixado
+            DEB_NOX=$(ls /var/cache/apt/archives/swi-prolog-nox_*.deb 2>/dev/null | head -1)
+
+            if [ -n "$DEB_NOX" ]; then
+                dpkg -i --force-overwrite "$DEB_NOX" 2>/dev/null
+            fi
+
+            # 18.9) Tenta consertar o apt
+            apt-get --fix-broken install -y 2>/dev/null
+            dpkg --configure -a 2>/dev/null
+        fi
+    fi
+
+    # 18.10) Validação final
+    if command -v swipl &>/dev/null; then
+        echo "✅ SWI-Prolog instalado: $(swipl --version 2>/dev/null | head -1)"
+    else
+        echo "⚠️ SWI-Prolog não instalou — mas o apt está OK"
+    fi
+fi
+
+# 18.11) Conserta o apt (garante que não ficou quebrado)
+apt-get --fix-broken install -y 2>/dev/null
+dpkg --configure -a 2>/dev/null
 # =====================================================================
 # 19) PostgreSQL 17
 # =====================================================================
