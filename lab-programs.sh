@@ -1,13 +1,25 @@
 #!/bin/bash
+# =====================================================================
+#  lab-programs.sh
+#  v11.0.0
+#
+#  Instala todos os programas do laboratorio.
+#
+#  v11.0.0 - Correcao do SWI-Prolog:
+#    - Remove 'swi-prolog' da lista de pacotes essenciais
+#    - Remove o PPA 'ppa:swi-prolog/stable' (causa conflito)
+#    - Instala o swi-prolog do repositorio oficial do Ubuntu
+#    - Se falhar, conserta o apt e tenta de novo
+# =====================================================================
 
-# Configuração inicial
+# Configuracao inicial
 export DEBIAN_FRONTEND=noninteractive
 
 # ==============================
-# BLOQUEAR MÓDULO algif_aead (Copy Fail CVE-2026-31431)
+# BLOQUEAR MODULO algif_aead (Copy Fail CVE-2026-31431)
 # ==============================
 
-# Função para verificar instalação
+# Funcao para verificar instalacao
 check_install() {
     if command -v $1 &>/dev/null; then
         echo "[SUCESSO] $1 instalado corretamente"
@@ -19,7 +31,7 @@ check_install() {
 }
 
 
-echo "Configurando bloqueio do módulo algif_aead..."
+echo "Configurando bloqueio do modulo algif_aead..."
 
 CONF="/etc/modprobe.d/manual-disable-algif_aead.conf"
 
@@ -27,9 +39,9 @@ if ! grep -q "algif_aead" "$CONF" 2>/dev/null; then
     echo "install algif_aead /bin/false" > "$CONF"
     echo "blacklist algif_aead" >> "$CONF"
     update-initramfs -u
-    echo "✔ Bloqueio aplicado"
+    echo "OK Bloqueio aplicado"
 else
-    echo "✔ Já configurado"
+    echo "OK Ja configurado"
 fi
 
 # aplicar imediatamente (opcional)
@@ -37,15 +49,15 @@ rmmod algif_aead 2>/dev/null || true
 
 
 # Corrigir erro "check-new-release-gtk crashed with apt_pkg"
-echo "Corrigindo possíveis problemas no release upgrader..."
+echo "Corrigindo possiveis problemas no release upgrader..."
 sudo apt-get update -y
 sudo apt-get install --reinstall -y ubuntu-release-upgrader-core ubuntu-release-upgrader-gtk python3-apt
 sudo apt --fix-broken install -y
 sudo dpkg --configure -a
 sudo apt autoremove -y
 
-# Desabilitar popups de atualização de versão do Ubuntu
-echo "Desabilitando notificações de atualização de versão do Ubuntu..."
+# Desabilitar popups de atualizacao de versao do Ubuntu
+echo "Desabilitando notificacoes de atualizacao de versao do Ubuntu..."
 sudo sed -i 's/^Prompt=.*/Prompt=never/' /etc/update-manager/release-upgrades
 gsettings set com.ubuntu.update-notifier show-livepatch-status false 2>/dev/null || true
 gsettings set com.ubuntu.update-notifier auto-launch false 2>/dev/null || true
@@ -53,8 +65,8 @@ sudo systemctl disable --now apt-daily.service apt-daily.timer apt-daily-upgrade
 sudo -E apt-get update -y
 sudo -E apt-get install -y software-properties-common apt-transport-https ca-certificates curl wget gnupg
 
-# Instalar Quarto
-QUARTO_VERSION="1.8.24"
+# Instalar Quarto (atualizado para 1.11.3)
+QUARTO_VERSION="1.11.3"
 QUARTO_URL="https://github.com/quarto-dev/quarto-cli/releases/download/v${QUARTO_VERSION}/quarto-${QUARTO_VERSION}-linux-amd64.deb"
 if ! command -v quarto &>/dev/null; then
     wget -O /tmp/quarto.deb "$QUARTO_URL"
@@ -63,7 +75,7 @@ if ! command -v quarto &>/dev/null; then
 fi
 check_install quarto
 
-# Atualização do sistema
+# Atualizacao do sistema
 echo "Atualizando sistema..."
 sudo -E apt-get update -y
 sudo -E apt-get upgrade -y
@@ -71,33 +83,22 @@ sudo -E apt-get dist-upgrade -y
 sudo -E apt-get autoremove -y
 sudo -E apt-get install -f -y
 
-# Instalar ClamAV (antivirus) e ClamTK (interface gráfica)
+# Instalar ClamAV (antivirus) e ClamTK (interface grafica)
 echo "Instalando ClamAV e ClamTK..."
 sudo -E apt-get update -y
-sudo -E apt-get install -y clamav freshclam clamtk
-sudo freshclam  # Atualiza as definições de vírus
+sudo -E apt-get install -y clamav clamtk
+sudo freshclam  # Atualiza as definicoes de virus
 check_install clamscan
 check_install clamtk
 
-# Instalar Termius
-#TERMIUS_URL="https://www.termius.com/download/linux/Termius.deb"
-#if [ ! -f ./termius_current.deb ]; then
-#    wget -O termius_current.deb "$TERMIUS_URL"
-#fi
-#sudo dpkg -i ./termius_current.deb || sudo apt-get -f install -y
-#sudo chown root:root /opt/Termius/chrome-sandbox
-#sudo chmod 4755 /opt/Termius/chrome-sandbox
-#check_install termius
-#echo "Atualizacao finalizada."
-
- #SRemovendo Termius
+# Removendo Termius
 echo "Removendo Termius..."
 
 if dpkg -l | grep -q termius-app; then
     sudo apt-get purge -y termius-app
     sudo apt-get autoremove -y
 else
-    echo "Pacote termius-app não encontrado. Removendo manualmente..."
+    echo "Pacote termius-app nao encontrado. Removendo manualmente..."
     sudo rm -rf /opt/Termius
     sudo rm -f /usr/share/applications/termius.desktop
     sudo rm -f /usr/bin/termius
@@ -112,33 +113,19 @@ check_install jupyter
 
 # Instalar Docker
 echo "Instalando Docker..."
-# Instalar dependências necessárias
 sudo apt-get install -y ca-certificates curl gnupg lsb-release
-# Criar diretório para chave GPG do Docker (com permissão adequada)
 sudo mkdir -p /etc/apt/keyrings
-# Baixar e adicionar a chave GPG do Docker
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-# Adicionar o repositório oficial do Docker
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | \
   sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-# Atualizar a lista de pacotes
 sudo apt-get update -y
-# Instalar os pacotes Docker
 sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-# Adicionar o usuário correto ao grupo docker para permitir usar docker sem sudo
 USERNAME=${SUDO_USER:-$USER}
 sudo usermod -aG docker $USERNAME
-echo "Docker instalado e usuário $USERNAME adicionado ao grupo docker. Faça logout/login para aplicar as permissões."
-# Verificar instalação
+echo "Docker instalado e usuario $USERNAME adicionado ao grupo docker. Faca logout/login para aplicar as permissoes."
 check_install docker
 
-# Instalar AVRA (Assembler para AVR)
-#echo "Instalando AVRA..."
-#sudo -E apt-get update -y
-#sudo -E apt-get install -y avra
-#check_install avra
-
-# --- Instalar a versão 1.3.0 do SourceForge ---
+# Instalar AVRA 1.3.0 (SourceForge)
 echo "Instalando AVRA 1.3.0 (SourceForge)..."
 sudo apt-get install -y build-essential wget bzip2
 cd /tmp
@@ -185,28 +172,28 @@ sudo -E apt-get update -y
 sudo -E apt-get install -y obs-studio v4l2loopback-dkms
 check_install obs
 
-# Instalar pacotes essenciais
+# Instalar pacotes essenciais (SEM swi-prolog)
 echo "Instalando pacotes essenciais..."
 sudo -E apt-get install -y \
-    python3-pip default-jre default-jdk maven swi-prolog racket elixir clisp nasm gcc-multilib \
+    python3-pip default-jre default-jdk maven racket elixir clisp nasm gcc-multilib \
     python3.11-full python3.10-venv \
     git flex bison vim sasm \
     mysql-server postgresql postgresql-contrib \
     arp-scan net-tools mtr dnsutils traceroute curl \
     gnupg ca-certificates podman megatools
 
-    # Instalar GNU Octave
-    echo "Instalando GNU Octave..."
-    sudo -E apt-get install -y octave
-    check_install octave
+# Instalar GNU Octave
+echo "Instalando GNU Octave..."
+sudo -E apt-get install -y octave
+check_install octave
 
-    # Atualizar Racket se necessário (versão oficial do site)
+# Atualizar Racket se necessario (versao oficial do site)
 echo "Verificando Racket..."
 
 LATEST_RACKET_URL=$(curl -s https://download.racket-lang.org/ | grep -oP 'https://[^"]+linux-x64.sh' | head -n 1)
 
 if [ ! -z "$LATEST_RACKET_URL" ]; then
-    echo "Baixando e instalando a versão mais recente do Racket..."
+    echo "Baixando e instalando a versao mais recente do Racket..."
     wget -O /tmp/racket-install.sh "$LATEST_RACKET_URL"
     chmod +x /tmp/racket-install.sh
     sudo /tmp/racket-install.sh --in-place --dest /opt/racket
@@ -216,13 +203,44 @@ fi
 
 check_install racket
 
-# Verificar e atualizar SWI-Prolog a partir do repositório oficial
+# =====================================================================
+# SWI-Prolog (v11.0.0 - SEM PPA, sem conflito)
+# =====================================================================
 echo "Verificando SWI-Prolog..."
-sudo add-apt-repository -y ppa:swi-prolog/stable
-sudo -E apt-get update -y
-sudo -E apt-get install -y swi-prolog
-check_install swipl
 
+# Se o swipl ja esta instalado, pula
+if command -v swipl &>/dev/null; then
+    echo "[SUCESSO] SWI-Prolog ja instalado: $(swipl --version 2>/dev/null | head -1)"
+else
+    echo "Instalando SWI-Prolog (versao do Ubuntu, sem PPA)..."
+
+    # Remove o PPA antigo do swi-prolog (causa conflito com swi-prolog-core)
+    if ls /etc/apt/sources.list.d/*swi-prolog* 2>/dev/null; then
+        echo "Removendo PPA antigo do swi-prolog..."
+        sudo add-apt-repository -r -y ppa:swi-prolog/stable 2>/dev/null || true
+        sudo rm -f /etc/apt/sources.list.d/*swi-prolog* 2>/dev/null
+        sudo rm -f /etc/apt/trusted.gpg.d/*swi-prolog* 2>/dev/null
+    fi
+
+    # Remove residuos do swi-prolog
+    sudo apt-get remove -y swi-prolog swi-prolog-nox swi-prolog-core \
+        swi-prolog-core-packages swi-prolog-doc 2>/dev/null || true
+    sudo apt-get autoremove -y 2>/dev/null || true
+
+    # Atualiza
+    sudo -E apt-get update -y
+
+    # Instala do Ubuntu
+    if ! sudo -E apt-get install -y swi-prolog; then
+        echo "[AVISO] Primeira tentativa falhou - consertando apt..."
+        sudo apt-get --fix-broken install -y 2>/dev/null
+        sudo dpkg --configure -a 2>/dev/null
+        sudo -E apt-get update -y
+        sudo -E apt-get install -y swi-prolog || true
+    fi
+fi
+
+check_install swipl
 
 # Configurar PostgreSQL 17
 echo "Instalando PostgreSQL 17..."
@@ -259,15 +277,20 @@ echo "Instalando Greenfoot..."
 sudo snap install greenfoot
 check_install greenfoot
 
-# Instalar SimulIDE
+# Instalar SimulIDE (atualizado para 1.1.0-SR2)
 echo "Instalando SimulIDE..."
 sudo -E apt-get install -y fuse libfuse2 libqt5core5a libqt5gui5 libqt5widgets5 libqt5network5 libqt5svg5 qtbase5-dev qttools5-dev-tools libqt5serialport5 libqt5serialport5-dev
 if [ ! -f /usr/local/bin/simulide ]; then
-    megadl "https://mega.nz/file/8akRDCYJ#8Fvn6U9RIJ-sX_f49fCsn05YTUr5ySNycoFlxVFX-iE" -o /tmp/SimulIDE.tar.gz
-    tar -xzvf /tmp/SimulIDE.tar.gz -C /opt
-    chmod +x /opt/SimulIDE_1.1.0-SR1_Lin64/simulide
-    ln -sf /opt/SimulIDE_1.1.0-SR1_Lin64/simulide /usr/local/bin/simulide
-    rm /tmp/SimulIDE.tar.gz
+    cd /opt
+    wget -q --timeout=60 --tries=3 \
+        "https://github.com/SimulIDE/SimulIDE/releases/download/1.1.0-SR2/SimulIDE_1.1.0-SR2_Lin64.tar.gz" \
+        -O /tmp/SimulIDE.tar.gz
+    if [ -s /tmp/SimulIDE.tar.gz ]; then
+        tar -xzf /tmp/SimulIDE.tar.gz -C /opt
+        chmod +x /opt/SimulIDE_1.1.0-SR2_Lin64/simulide 2>/dev/null
+        ln -sf /opt/SimulIDE_1.1.0-SR2_Lin64/simulide /usr/local/bin/simulide 2>/dev/null
+        rm /tmp/SimulIDE.tar.gz
+    fi
 fi
 check_install simulide
 
@@ -279,7 +302,7 @@ check_install arduino
 
 # Instalar Wine
 echo "Instalando Wine..."
-sudo -E apt-get install -y wine64
+sudo -E apt-get install -y wine
 check_install wine
 
 # Instalar MongoDB
@@ -296,7 +319,7 @@ check_install mongo
 
 # Instalar R e RStudio
 echo "Instalando R e RStudio..."
-sudo -E apt-get install -y --no-install-recommends software-properties-common dirmngr
+sudo -E apt-get install -y --no-install-recommends software-properties-common dirmngr gdebi-core
 wget -qO- https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc | sudo tee -a /etc/apt/trusted.gpg.d/cran_ubuntu_key.asc
 sudo add-apt-repository "deb https://cloud.r-project.org/bin/linux/ubuntu $(lsb_release -cs)-cran40/"
 sudo -E apt-get update -y
@@ -363,7 +386,6 @@ check_install google-chrome
 # Instalar Android Studio e SDK
 echo "Instalando Android Studio..."
 if ! [ -f /usr/local/sbin/android.sh ]; then
-    # Android SDK
     if [[ ! -d /opt/Android ]]; then
         wget https://nuvem.ufba.br/s/FjNaDukULOwHhs4/download -O /tmp/Android.tar.bz2
         tar xjf /tmp/Android.tar.bz2 -C /opt
@@ -371,12 +393,10 @@ if ! [ -f /usr/local/sbin/android.sh ]; then
         ln -sf /opt/Android $HOME/Android
     fi
 
-    # Android Studio via Snap
     if ! snap list | grep -q android-studio; then
         sudo snap install android-studio --classic
     fi
 
-    # Gradle
     if [[ ! -d /opt/gradle ]]; then
         wget https://nuvem.ufba.br/s/U5anBL3tRpN2xhT/download -O /tmp/gradle.tar.bz2
         tar xjf /tmp/gradle.tar.bz2 -C /opt
@@ -407,4 +427,4 @@ if ! dpkg -l | grep -q frame0; then
 fi
 check_install frame0
 
-echo "Instalação concluída!"
+echo "Instalacao concluida!"
