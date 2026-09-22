@@ -1,18 +1,12 @@
 #!/bin/bash
 # =====================================================================
 #  lab-block-sites.sh
-#  v2.0.0
+#  v1.0.0
 #
 #  Bloqueia uma lista de sites recebida como argumento.
 #  Uso: sudo /usr/local/sbin/lab-block-sites.sh "youtube.com,instagram.com"
 #
-#  Localizacao: /usr/local/sbin/lab-block-sites.sh
-#
-#  v2.0.0:
-#    - Usa 'pkill -f' para matar processos filhos
-#    - Usa 'pkill -u' para matar por usuario
-#    - Para o snap do Firefox
-#    - Verifica se sobrou algum navegador
+#  Localização: /usr/local/sbin/lab-block-sites.sh
 # =====================================================================
 
 SITES="$1"
@@ -28,9 +22,7 @@ echo "[$(date '+%F %T')] host=$(hostname) BLOCK-SITES: $SITES" >> "$LOG"
 # Converte "a.com,b.com" em array
 IFS=',' read -ra LISTA <<< "$SITES"
 
-# ---------------------------------------------------------------------
 # Monta JSON do Firefox
-# ---------------------------------------------------------------------
 BLOCK_JSON=""
 for s in "${LISTA[@]}"; do
     s=$(echo "$s" | xargs)   # trim
@@ -45,17 +37,9 @@ FIREFOX_POLICIES=$(cat <<EOF
     "WebsiteFilter": {
       "Block": [$BLOCK_JSON]
     },
-    "BlockAboutAddons": true,
-    "BlockAboutConfig": true,
-    "BlockAboutProfiles": true,
-    "BlockAboutSupport": true,
     "DisableDeveloperTools": true,
     "DisablePrivateBrowsing": true,
-    "DisableSafeMode": true,
     "DisableSafeBrowsing": true,
-    "InstallAddonsPermission": {
-      "Default": false
-    },
     "OverrideFirstRunPage": "",
     "OverridePostUpdatePage": ""
   }
@@ -63,24 +47,21 @@ FIREFOX_POLICIES=$(cat <<EOF
 EOF
 )
 
-# ---------------------------------------------------------------------
-# Aplica politicas do Firefox (Snap e .deb)
-# ---------------------------------------------------------------------
+# Firefox Snap
 if [ -d /snap/firefox ] || snap list firefox &>/dev/null; then
     mkdir -p /var/snap/firefox/common/policies
     echo "$FIREFOX_POLICIES" > /var/snap/firefox/common/policies/policies.json
     chmod 644 /var/snap/firefox/common/policies/policies.json
 fi
 
+# Firefox .deb
 if [ -f /usr/lib/firefox/firefox ] || [ -f /usr/lib/firefox/firefox.sh ]; then
     mkdir -p /etc/firefox/policies
     echo "$FIREFOX_POLICIES" > /etc/firefox/policies/policies.json
     chmod 644 /etc/firefox/policies/policies.json
 fi
 
-# ---------------------------------------------------------------------
-# Monta blocklist do Chrome
-# ---------------------------------------------------------------------
+# Chrome
 CHROME_BLOCK=""
 for s in "${LISTA[@]}"; do
     s=$(echo "$s" | xargs)
@@ -93,16 +74,11 @@ CHROME_POLICIES=$(cat <<EOF
 {
   "URLBlocklist": [$CHROME_BLOCK],
   "IncognitoModeAvailability": 1,
-  "DeveloperToolsAvailability": 2,
-  "ExtensionInstallBlocklist": ["*"],
-  "BrowserGuestModeEnabled": false
+  "DeveloperToolsAvailability": 2
 }
 EOF
 )
 
-# ---------------------------------------------------------------------
-# Aplica politicas do Chrome / Chromium
-# ---------------------------------------------------------------------
 if [ -d /opt/google/chrome ] || command -v google-chrome &>/dev/null; then
     mkdir -p /etc/opt/chrome/policies/managed
     echo "$CHROME_POLICIES" > /etc/opt/chrome/policies/managed/policies.json
@@ -115,52 +91,22 @@ if [ -d /usr/lib/chromium ] || command -v chromium &>/dev/null; then
     chmod 644 /etc/opt/chromium/policies/managed/policies.json
 fi
 
-# =====================================================================
-# Mata navegadores (v2.0.0 - com -f)
-# =====================================================================
-echo "==> Fechando navegadores..."
+# Mata navegadores para forçar releitura
+USUARIOS_HUMANOS=$(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd)
 
-NAVEGADORES="firefox firefox-esr chrome google-chrome chromium chromium-browser"
-
-# 1. TERM (educado) - TODOS os usuarios humanos
-for u in $(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd); do
-    for nav in $NAVEGADORES; do
-        pkill -TERM -u "$u" -f "$nav" 2>/dev/null || true
-    done
+for u in $USUARIOS_HUMANOS; do
+    sudo -u "$u" pkill -TERM firefox   2>/dev/null
+    sudo -u "$u" pkill -TERM chrome    2>/dev/null
+    sudo -u "$u" pkill -TERM chromium  2>/dev/null
 done
 
-# TERM como root
-for nav in $NAVEGADORES; do
-    pkill -TERM -f "$nav" 2>/dev/null || true
+sleep 2
+
+for u in $USUARIOS_HUMANOS; do
+    sudo -u "$u" pkill -KILL firefox   2>/dev/null
+    sudo -u "$u" pkill -KILL chrome    2>/dev/null
+    sudo -u "$u" pkill -KILL chromium  2>/dev/null
 done
 
-sleep 3
-
-# 2. KILL (forca) - TODOS
-for u in $(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd); do
-    for nav in $NAVEGADORES; do
-        pkill -KILL -u "$u" -f "$nav" 2>/dev/null || true
-    done
-done
-
-for nav in $NAVEGADORES; do
-    pkill -KILL -f "$nav" 2>/dev/null || true
-done
-
-# 3. Snap do Firefox
-if snap list firefox &>/dev/null; then
-    snap stop firefox 2>/dev/null || true
-fi
-
-sleep 1
-
-# 4. Verifica
-if pgrep -f "firefox|chrome|chromium" &>/dev/null; then
-    echo "[AVISO] Ainda tem navegadores rodando:"
-    pgrep -af "firefox|chrome|chromium"
-else
-    echo "[OK] Navegadores fechados"
-fi
-
-echo "[$(date '+%F %T')] BLOCK-SITES concluido" >> "$LOG"
+echo "[$(date '+%F %T')] BLOCK-SITES concluído" >> "$LOG"
 exit 0
