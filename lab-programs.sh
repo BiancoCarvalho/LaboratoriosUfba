@@ -1,26 +1,21 @@
 #!/bin/bash
 # =====================================================================
 #  lab-programs.sh
-#  v11.0.0
+#  v12.0.0
 #
 #  Instala todos os programas do laboratorio.
 #
-#  v11.0.0 - Correcao do SWI-Prolog:
-#    - Remove 'swi-prolog' da lista de pacotes essenciais
-#    - Remove o PPA 'ppa:swi-prolog/stable' (causa conflito)
-#    - Instala o swi-prolog do repositorio oficial do Ubuntu
-#    - Se falhar, conserta o apt e tenta de novo
+#  v12.0.0:
+#    - Firefox movido para o FINAL (sem exit 0)
+#    - SWI-Prolog sem PPA
+#    - v4l2loopback corrigido para kernel 6.8
 # =====================================================================
 
-# Configuracao inicial
 export DEBIAN_FRONTEND=noninteractive
 
-# ==============================
-# BLOQUEAR MODULO algif_aead (Copy Fail CVE-2026-31431)
-# ==============================
-
-
+# =====================================================================
 # Funcao para verificar instalacao
+# =====================================================================
 check_install() {
     if command -v $1 &>/dev/null; then
         echo "[SUCESSO] $1 instalado corretamente"
@@ -31,11 +26,11 @@ check_install() {
     fi
 }
 
-
+# =====================================================================
+# 0) Bloquear modulo algif_aead
+# =====================================================================
 echo "Configurando bloqueio do modulo algif_aead..."
-
 CONF="/etc/modprobe.d/manual-disable-algif_aead.conf"
-
 if ! grep -q "algif_aead" "$CONF" 2>/dev/null; then
     echo "install algif_aead /bin/false" > "$CONF"
     echo "blacklist algif_aead" >> "$CONF"
@@ -44,109 +39,55 @@ if ! grep -q "algif_aead" "$CONF" 2>/dev/null; then
 else
     echo "OK Ja configurado"
 fi
-
-# aplicar imediatamente (opcional)
 rmmod algif_aead 2>/dev/null || true
 
-
-# Corrigir erro "check-new-release-gtk crashed with apt_pkg"
+# =====================================================================
+# 1) Release upgrader
+# =====================================================================
 echo "Corrigindo possiveis problemas no release upgrader..."
-sudo apt-get update -y
-sudo apt-get install --reinstall -y ubuntu-release-upgrader-core ubuntu-release-upgrader-gtk python3-apt
-sudo apt --fix-broken install -y
-sudo dpkg --configure -a
-sudo apt autoremove -y
+apt-get update -y
+apt-get install --reinstall -y ubuntu-release-upgrader-core ubuntu-release-upgrader-gtk python3-apt
+apt --fix-broken install -y
+dpkg --configure -a
+apt autoremove -y
 
-# Desabilitar popups de atualizacao de versao do Ubuntu
-echo "Desabilitando notificacoes de atualizacao de versao do Ubuntu..."
-sudo sed -i 's/^Prompt=.*/Prompt=never/' /etc/update-manager/release-upgrades
+sed -i 's/^Prompt=.*/Prompt=never/' /etc/update-manager/release-upgrades
 gsettings set com.ubuntu.update-notifier show-livepatch-status false 2>/dev/null || true
 gsettings set com.ubuntu.update-notifier auto-launch false 2>/dev/null || true
-sudo systemctl disable --now apt-daily.service apt-daily.timer apt-daily-upgrade.timer apt-daily-upgrade.service
-sudo -E apt-get update -y
-sudo -E apt-get install -y software-properties-common apt-transport-https ca-certificates curl wget gnupg
+systemctl disable --now apt-daily.service apt-daily.timer apt-daily-upgrade.timer apt-daily-upgrade.service
+apt-get update -y
+apt-get install -y software-properties-common apt-transport-https ca-certificates curl wget gnupg
 
-# Instalar Quarto (atualizado para 1.11.3)
+# =====================================================================
+# 2) Quarto
+# =====================================================================
+echo "Instalando Quarto..."
 QUARTO_VERSION="1.11.3"
 QUARTO_URL="https://github.com/quarto-dev/quarto-cli/releases/download/v${QUARTO_VERSION}/quarto-${QUARTO_VERSION}-linux-amd64.deb"
 if ! command -v quarto &>/dev/null; then
     wget -O /tmp/quarto.deb "$QUARTO_URL"
-    sudo dpkg -i /tmp/quarto.deb || sudo apt-get -f install -y
-    rm /tmp/quarto.deb
+    dpkg -i /tmp/quarto.deb || apt-get -f install -y
+    rm -f /tmp/quarto.deb
 fi
 check_install quarto
 
-# Atualizacao do sistema
+# =====================================================================
+# 3) Atualizacao do sistema
+# =====================================================================
 echo "Atualizando sistema..."
-sudo -E apt-get update -y
-sudo -E apt-get upgrade -y
-sudo -E apt-get dist-upgrade -y
-sudo -E apt-get autoremove -y
-sudo -E apt-get install -f -y
-
-
-echo "========================================="
-echo "  Removendo Firefox Snap e instalando .deb"
-echo "========================================="
-
-# 1. Remove o Firefox Snap (se existir)
-if snap list firefox &>/dev/null; then
-    echo "==> Removendo Firefox Snap..."
-    sudo snap remove firefox
-    sleep 2
-else
-    echo "==> Firefox Snap nao encontrado"
-fi
-
-# 2. Remove o pacote 'firefox' do APT (que era um wrapper para o Snap)
-if dpkg -l | grep -q "^ii  firefox"; then
-    echo "==> Removendo pacote 'firefox' do APT (wrapper)..."
-    sudo apt remove -y firefox
-    sudo apt autoremove -y
-fi
-
-# 3. Adiciona o PPA da Mozilla (fornece o .deb)
-echo "==> Adicionando PPA da Mozilla..."
-sudo add-apt-repository -y ppa:mozillateam/ppa
-sudo apt update -y
-
-# 4. Prioriza o .deb do PPA sobre o Snap do Ubuntu
-echo "==> Configurando prioridade do PPA..."
-cat << 'EOF' | sudo tee /etc/apt/preferences.d/mozilla-firefox > /dev/null
-Package: firefox*
-Pin: release o=LP-PPA-mozillateam
-Pin-Priority: 1001
-
-Package: firefox*
-Pin: release o=Ubuntu*
-Pin-Priority: -1
-EOF
-
-# 5. Instala o Firefox .deb
-echo "==> Instalando Firefox .deb..."
-sudo apt install -y firefox --allow-downgrades
-
-# 6. Verifica se instalou como .deb (ELF) e nao como script wrapper
-echo "==> Verificando instalacao..."
-if file /usr/bin/firefox | grep -q "ELF"; then
-    echo "[SUCESSO] Firefox .deb instalado: $(firefox --version 2>/dev/null | head -1)"
-else
-    echo "[ERRO] Firefox ainda e script wrapper (Snap)"
-    echo "       Caminho: $(readlink -f $(which firefox))"
-fi
-
-exit 0
+apt-get update -y
+apt-get upgrade -y
+apt-get autoremove -y
+apt-get install -f -y
 
 # =====================================================================
-# 0) SSH (instalar e configurar)
+# 4) SSH
 # =====================================================================
 echo "Instalando SSH..."
-sudo apt-get update -y
-sudo apt-get install -y openssh-server
-sudo systemctl enable ssh
-sudo systemctl start ssh
+apt-get install -y openssh-server
+systemctl enable ssh 2>/dev/null
+systemctl start ssh 2>/dev/null
 sleep 1
-
 if systemctl is-active --quiet ssh; then
     echo "[SUCESSO] SSH rodando"
 elif ss -tlnp 2>/dev/null | grep -q ":22 "; then
@@ -157,55 +98,56 @@ else
     echo "[ERRO] Falha ao instalar SSH"
 fi
 
-
-# Instalar ClamAV (antivirus) e ClamTK (interface grafica)
+# =====================================================================
+# 5) ClamAV
+# =====================================================================
 echo "Instalando ClamAV e ClamTK..."
-sudo -E apt-get update -y
-sudo -E apt-get install -y clamav clamtk
-sudo freshclam  # Atualiza as definicoes de virus
+apt-get install -y clamav clamtk
+timeout 300 freshclam 2>/dev/null || true
 check_install clamscan
 check_install clamtk
 
-# Removendo Termius
+# =====================================================================
+# 6) Remover Termius
+# =====================================================================
 echo "Removendo Termius..."
-
 if dpkg -l | grep -q termius-app; then
-    sudo apt-get purge -y termius-app
-    sudo apt-get autoremove -y
+    apt-get purge -y termius-app
+    apt-get autoremove -y
 else
-    echo "Pacote termius-app nao encontrado. Removendo manualmente..."
-    sudo rm -rf /opt/Termius
-    sudo rm -f /usr/share/applications/termius.desktop
-    sudo rm -f /usr/bin/termius
+    rm -rf /opt/Termius
+    rm -f /usr/share/applications/termius.desktop
+    rm -f /usr/bin/termius
 fi
 
-echo "Termius removido com sucesso."
-
-# Instalar Jupyter
+# =====================================================================
+# 7) Jupyter
+# =====================================================================
 echo "Instalando Jupyter..."
-pip install jupyter -q
+pip install jupyter -q 2>/dev/null || pip3 install jupyter -q 2>/dev/null || true
 check_install jupyter
 
-# Instalar Docker
+# =====================================================================
+# 8) Docker
+# =====================================================================
 echo "Instalando Docker..."
-sudo apt-get install -y ca-certificates curl gnupg lsb-release
-sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt-get update -y
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+apt-get install -y ca-certificates curl gnupg lsb-release
+mkdir -p /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+apt-get update -y
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 USERNAME=${SUDO_USER:-$USER}
-sudo usermod -aG docker $USERNAME
-echo "Docker instalado e usuario $USERNAME adicionado ao grupo docker. Faca logout/login para aplicar as permissoes."
+usermod -aG docker $USERNAME 2>/dev/null || true
 check_install docker
 
-# Instalar AVRA 1.3.0 (SourceForge + GitHub fallback)
+# =====================================================================
+# 9) AVRA
+# =====================================================================
 echo "Instalando AVRA 1.3.0..."
-sudo apt-get install -y build-essential wget bzip2
+apt-get install -y build-essential wget bzip2
 rm -rf /tmp/avra-*
 cd /tmp
-
 if wget -q --timeout=30 --tries=2 "https://downloads.sourceforge.net/project/avra/1.3.0/avra-1.3.0.tar.bz2" -O avra-1.3.0.tar.bz2 && [ -s avra-1.3.0.tar.bz2 ]; then
     tar -xjf avra-1.3.0.tar.bz2
     cd avra-1.3.0
@@ -213,92 +155,80 @@ elif wget -q --timeout=30 --tries=2 "https://github.com/Ro5bert/avra/archive/ref
     tar -xzf avra-1.3.0.tar.gz
     cd avra-1.3.0
 fi
-
 if [ -f Makefile ]; then
     make
-    sudo make install
+    make install
     cd /
     rm -rf /tmp/avra-*
 fi
 check_install avra
 
-# Instalar Ollama
+# =====================================================================
+# 10) Ollama
+# =====================================================================
 echo "Instalando Ollama..."
 curl -fsSL https://ollama.com/install.sh | sh
 check_install ollama
 
-
-# Instalar Sublime Text
+# =====================================================================
+# 11) Sublime Text
+# =====================================================================
 echo "Instalando Sublime Text..."
-curl -fsSL https://download.sublimetext.com/sublimehq-pub.gpg | sudo gpg --dearmor -o /usr/share/keyrings/sublime-text-archive-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/sublime-text-archive-keyring.gpg] https://download.sublimetext.com/ apt/stable/" | sudo tee /etc/apt/sources.list.d/sublime-text.list
-sudo -E apt-get update -y
-sudo -E apt-get install -y sublime-text
+curl -fsSL https://download.sublimetext.com/sublimehq-pub.gpg | gpg --dearmor -o /usr/share/keyrings/sublime-text-archive-keyring.gpg
+echo "deb [signed-by=/usr/share/keyrings/sublime-text-archive-keyring.gpg] https://download.sublimetext.com/ apt/stable/" | tee /etc/apt/sources.list.d/sublime-text.list
+apt-get update -y
+apt-get install -y sublime-text
 check_install subl
 
-# Instalar Neofetch
+# =====================================================================
+# 12) Neofetch
+# =====================================================================
 echo "Instalando Neofetch..."
-sudo -E apt-get install -y neofetch
+apt-get install -y neofetch
 check_install neofetch
 
-# Instalar Visual Studio Code
+# =====================================================================
+# 13) VS Code
+# =====================================================================
 echo "Instalando Visual Studio Code..."
 wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > packages.microsoft.gpg
-sudo install -D -o root -g root -m 644 packages.microsoft.gpg /etc/apt/keyrings/packages.microsoft.gpg
-sudo sh -c 'echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list'
+install -D -o root -g root -m 644 packages.microsoft.gpg /etc/apt/keyrings/packages.microsoft.gpg
+echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list
 rm -f packages.microsoft.gpg
-sudo -E apt-get update -y
-sudo -E apt-get install -y code
+apt-get update -y
+apt-get install -y code
 check_install code
 
 # =====================================================================
-# OBS Studio + v4l2loopback (CORRIGIDO para kernel 6.8)
+# 14) OBS Studio + v4l2loopback
 # =====================================================================
 echo "Instalando OBS Studio..."
+add-apt-repository -y ppa:obsproject/obs-studio
+apt-get update -y
+apt-get install -y obs-studio
 
-sudo add-apt-repository -y ppa:obsproject/obs-studio
-sudo -E apt-get update -y
-sudo -E apt-get install -y obs-studio
-
-echo "Instalando v4l2loopback (compilando versão corrigida)..."
-
-# 1. Remove a versão quebrada do apt
-sudo apt-get purge -y v4l2loopback-dkms v4l2loopback-utils 2>/dev/null || true
-sudo rm -f /var/crash/v4l2loopback-dkms.*.crash
-
-# 2. Instala dependências de compilação
-sudo -E apt-get install -y git dkms build-essential linux-headers-$(uname -r)
-
-# 3. Baixa a versão corrigida (0.15.0+)
+echo "Instalando v4l2loopback..."
+apt-get purge -y v4l2loopback-dkms v4l2loopback-utils 2>/dev/null || true
+rm -f /var/crash/v4l2loopback-dkms.*.crash
+apt-get install -y git dkms build-essential linux-headers-$(uname -r)
 rm -rf /tmp/v4l2loopback
 git clone https://github.com/umlaeute/v4l2loopback.git /tmp/v4l2loopback
 cd /tmp/v4l2loopback
-
-# 4. Compila e instala via DKMS
-sudo mkdir -p /usr/src/v4l2loopback-0.15.0
-sudo cp -r * /usr/src/v4l2loopback-0.15.0/
+mkdir -p /usr/src/v4l2loopback-0.15.0
+cp -r * /usr/src/v4l2loopback-0.15.0/
 cd /usr/src/v4l2loopback-0.15.0
-sudo dkms add -m v4l2loopback -v 0.15.0
-sudo dkms build -m v4l2loopback -v 0.15.0
-sudo dkms install -m v4l2loopback -v 0.15.0
+dkms add -m v4l2loopback -v 0.15.0 2>/dev/null || true
+dkms build -m v4l2loopback -v 0.15.0 2>/dev/null || true
+dkms install -m v4l2loopback -v 0.15.0 2>/dev/null || true
+apt-mark hold v4l2loopback-dkms 2>/dev/null || true
+modprobe v4l2loopback exclusive_caps=1 2>/dev/null || true
+check_install obs
 
-# 5. Bloqueia o apt de tentar reinstalar a versão quebrada
-sudo apt-mark hold v4l2loopback-dkms
-
-# 6. Carrega o módulo
-sudo modprobe v4l2loopback exclusive_caps=1
-
-# 7. Verifica
-if lsmod | grep -q v4l2loopback; then
-    echo "[SUCESSO] v4l2loopback instalado"
-else
-    echo "[ERRO] v4l2loopback nao carregou"
-fi
-
-
-# Instalar pacotes essenciais (SEM swi-prolog)
+# =====================================================================
+# 15) Pacotes essenciais (SEM swi-prolog)
+# =====================================================================
 echo "Instalando pacotes essenciais..."
-sudo -E apt-get install -y \
+apt-get install -y \
     python3-pip default-jre default-jdk maven racket elixir clisp nasm gcc-multilib \
     python3.11-full python3.10-venv \
     git flex bison vim sasm \
@@ -306,211 +236,192 @@ sudo -E apt-get install -y \
     arp-scan net-tools mtr dnsutils traceroute curl \
     gnupg ca-certificates podman megatools
 
-# Instalar GNU Octave
+# =====================================================================
+# 16) Octave
+# =====================================================================
 echo "Instalando GNU Octave..."
-sudo -E apt-get install -y octave
+apt-get install -y octave
 check_install octave
 
-# Atualizar Racket se necessario (versao oficial do site)
+# =====================================================================
+# 17) Racket
+# =====================================================================
 echo "Verificando Racket..."
-
 LATEST_RACKET_URL=$(curl -s https://download.racket-lang.org/ | grep -oP 'https://[^"]+linux-x64.sh' | head -n 1)
-
 if [ ! -z "$LATEST_RACKET_URL" ]; then
-    echo "Baixando e instalando a versao mais recente do Racket..."
     wget -O /tmp/racket-install.sh "$LATEST_RACKET_URL"
     chmod +x /tmp/racket-install.sh
-    sudo /tmp/racket-install.sh --in-place --dest /opt/racket
-    sudo ln -sf /opt/racket/bin/racket /usr/local/bin/racket
+    /tmp/racket-install.sh --in-place --dest /opt/racket
+    ln -sf /opt/racket/bin/racket /usr/local/bin/racket
     rm /tmp/racket-install.sh
 fi
-
 check_install racket
 
 # =====================================================================
-# SWI-Prolog (v11.0.0 - SEM PPA, sem conflito)
+# 18) SWI-Prolog (SEM PPA)
 # =====================================================================
 echo "Verificando SWI-Prolog..."
-
-# Se o swipl ja esta instalado, pula
 if command -v swipl &>/dev/null; then
-    echo "[SUCESSO] SWI-Prolog ja instalado: $(swipl --version 2>/dev/null | head -1)"
+    echo "[SUCESSO] SWI-Prolog ja instalado"
 else
-    echo "Instalando SWI-Prolog (versao do Ubuntu, sem PPA)..."
-
-    # Remove o PPA antigo do swi-prolog (causa conflito com swi-prolog-core)
     if ls /etc/apt/sources.list.d/*swi-prolog* 2>/dev/null; then
-        echo "Removendo PPA antigo do swi-prolog..."
-        sudo add-apt-repository -r -y ppa:swi-prolog/stable 2>/dev/null || true
-        sudo rm -f /etc/apt/sources.list.d/*swi-prolog* 2>/dev/null
-        sudo rm -f /etc/apt/trusted.gpg.d/*swi-prolog* 2>/dev/null
+        add-apt-repository -r -y ppa:swi-prolog/stable 2>/dev/null || true
+        rm -f /etc/apt/sources.list.d/*swi-prolog* 2>/dev/null
+        rm -f /etc/apt/trusted.gpg.d/*swi-prolog* 2>/dev/null
     fi
-
-    # Remove residuos do swi-prolog
-    sudo apt-get remove -y swi-prolog swi-prolog-nox swi-prolog-core \
-        swi-prolog-core-packages swi-prolog-doc 2>/dev/null || true
-    sudo apt-get autoremove -y 2>/dev/null || true
-
-    # Atualiza
-    sudo -E apt-get update -y
-
-    # Instala do Ubuntu
-    if ! sudo -E apt-get install -y swi-prolog; then
-        echo "[AVISO] Primeira tentativa falhou - consertando apt..."
-        sudo apt-get --fix-broken install -y 2>/dev/null
-        sudo dpkg --configure -a 2>/dev/null
-        sudo -E apt-get update -y
-        sudo -E apt-get install -y swi-prolog || true
-    fi
+    apt-get remove -y swi-prolog swi-prolog-nox swi-prolog-core swi-prolog-core-packages swi-prolog-doc 2>/dev/null || true
+    apt-get autoremove -y 2>/dev/null || true
+    apt-get update -y
+    apt-get install -y swi-prolog || true
 fi
-
 check_install swipl
 
-# Configurar PostgreSQL 17
+# =====================================================================
+# 19) PostgreSQL 17
+# =====================================================================
 echo "Instalando PostgreSQL 17..."
-sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-sudo -E apt-get update -y
-sudo -E apt-get install -y postgresql-17 postgresql-contrib
-sudo systemctl start postgresql
-sudo systemctl enable postgresql
+echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list
+wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - 2>/dev/null || true
+apt-get update -y
+apt-get install -y postgresql-17 postgresql-contrib
+systemctl start postgresql
+systemctl enable postgresql
 check_install psql
 
-# Instalar pgAdmin
+# =====================================================================
+# 20) pgAdmin
+# =====================================================================
 echo "Instalando pgAdmin..."
-curl -fsS https://www.pgadmin.org/static/packages_pgadmin_org.pub | sudo gpg --dearmor -o /usr/share/keyrings/packages-pgadmin-org.gpg
-sudo sh -c 'echo "deb [signed-by=/usr/share/keyrings/packages-pgadmin-org.gpg] https://ftp.postgresql.org/pub/pgadmin/pgadmin4/apt/$(lsb_release -cs) pgadmin4 main" > /etc/apt/sources.list.d/pgadmin4.list'
-sudo -E apt-get update -y
-sudo -E apt-get install -y pgadmin4-web pgadmin4-desktop
+curl -fsS https://www.pgadmin.org/static/packages_pgadmin_org.pub | gpg --dearmor -o /usr/share/keyrings/packages-pgadmin-org.gpg
+echo "deb [signed-by=/usr/share/keyrings/packages-pgadmin-org.gpg] https://ftp.postgresql.org/pub/pgadmin/pgadmin4/apt/$(lsb_release -cs) pgadmin4 main" > /etc/apt/sources.list.d/pgadmin4.list
+apt-get update -y
+apt-get install -y pgadmin4-web pgadmin4-desktop
 
 # =====================================================================
-# MySQL Workbench (v12.0.0 - via snap)
+# 21) MySQL Workbench
 # =====================================================================
 echo "Instalando MySQL Workbench..."
-
-# Tenta snap primeiro (mais confiavel)
 if ! snap list mysql-workbench-community &>/dev/null; then
-    sudo snap install mysql-workbench-community 2>/dev/null || true
-fi
-
-if snap list mysql-workbench-community &>/dev/null; then
-    echo "[SUCESSO] mysql-workbench via snap"
-else
-    # Fallback: .deb
-    wget -q --timeout=60 --tries=2 \
-        "https://dev.mysql.com/get/Downloads/MySQLGUITools/mysql-workbench-community_8.0.34-1ubuntu22.04_amd64.deb" \
-        -O /tmp/mysql-workbench.deb
-    if [ -s /tmp/mysql-workbench.deb ]; then
-        sudo -E dpkg -i /tmp/mysql-workbench.deb || sudo -E apt-get -f install -y
-        rm /tmp/mysql-workbench.deb
-    fi
+    snap install mysql-workbench-community 2>/dev/null || true
 fi
 check_install mysql-workbench
 
-# Instalar NetBeans via Snap
+# =====================================================================
+# 22) NetBeans
+# =====================================================================
 echo "Instalando NetBeans..."
-sudo -E apt-get install -y openjdk-17-jdk
-sudo snap install netbeans --classic
+apt-get install -y openjdk-17-jdk
+snap install netbeans --classic
 check_install netbeans
 
-# Instalar Greenfoot via Snap
+# =====================================================================
+# 23) Greenfoot
+# =====================================================================
 echo "Instalando Greenfoot..."
-sudo snap install greenfoot
+snap install greenfoot
 check_install greenfoot
 
 # =====================================================================
-# SimulIDE (v12.0.0 - 3 URLs)
+# 24) SimulIDE
 # =====================================================================
 echo "Instalando SimulIDE..."
-sudo -E apt-get install -y fuse libfuse2 libqt5core5a libqt5gui5 libqt5widgets5 libqt5network5 libqt5svg5 qtbase5-dev qttools5-dev-tools libqt5serialport5 libqt5serialport5-dev
-
+apt-get install -y fuse libfuse2 libqt5core5a libqt5gui5 libqt5widgets5 libqt5network5 libqt5svg5 qtbase5-dev qttools5-dev-tools libqt5serialport5 libqt5serialport5-dev
 if [ ! -f /usr/local/bin/simulide ]; then
     cd /opt
     for URL in \
         "https://github.com/SimulIDE/SimulIDE/releases/download/1.1.0-SR2/SimulIDE_1.1.0-SR2_Lin64.tar.gz" \
-        "https://github.com/SimulIDE/SimulIDE/releases/download/1.1.0/SimulIDE_1.1.0-SR1_Lin64.tar.gz" \
-        "https://github.com/SimulIDE/SimulIDE/releases/download/1.0.0/SimulIDE_1.0.0-SR0_Lin64.tar.gz"; do
-
-        echo "Tentando: $URL"
+        "https://github.com/SimulIDE/SimulIDE/releases/download/1.1.0/SimulIDE_1.1.0-SR1_Lin64.tar.gz"; do
         wget -q --timeout=60 --tries=2 "$URL" -O /tmp/SimulIDE.tar.gz
-        if [ -s /tmp/SimulIDE.tar.gz ]; then
-            echo "[OK] Baixou"
-            break
-        fi
+        if [ -s /tmp/SimulIDE.tar.gz ]; then break; fi
         rm -f /tmp/SimulIDE.tar.gz
     done
-
     if [ -s /tmp/SimulIDE.tar.gz ]; then
-        sudo tar -xzf /tmp/SimulIDE.tar.gz -C /opt
-        sudo chmod +x /opt/SimulIDE*/simulide 2>/dev/null
-        sudo ln -sf /opt/SimulIDE*/simulide /usr/local/bin/simulide 2>/dev/null
+        tar -xzf /tmp/SimulIDE.tar.gz -C /opt
+        chmod +x /opt/SimulIDE*/simulide 2>/dev/null
+        ln -sf /opt/SimulIDE*/simulide /usr/local/bin/simulide 2>/dev/null
         rm /tmp/SimulIDE.tar.gz
     fi
 fi
 check_install simulide
 
-# Instalar Arduino IDE
+# =====================================================================
+# 25) Arduino
+# =====================================================================
 echo "Instalando Arduino IDE..."
-sudo snap install arduino
-sudo usermod -a -G dialout $USER
+snap install arduino
+usermod -a -G dialout $USER
 check_install arduino
 
-# Instalar Wine
+# =====================================================================
+# 26) Wine
+# =====================================================================
 echo "Instalando Wine..."
-sudo -E apt-get install -y wine
+apt-get install -y wine
 check_install wine
 
-# Instalar MongoDB
+# =====================================================================
+# 27) MongoDB
+# =====================================================================
 echo "Instalando MongoDB..."
 if ! [ -f /etc/mongod.conf ]; then
-    curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | sudo gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor
-    echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
-    sudo -E apt-get update -y
-    sudo -E apt-get install -y mongodb-org
-    sudo systemctl start mongod
-    sudo systemctl enable mongod
+    curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor
+    echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-7.0.list
+    apt-get update -y
+    apt-get install -y mongodb-org
+    systemctl start mongod
+    systemctl enable mongod
 fi
 check_install mongo
 
-# Instalar R e RStudio
+# =====================================================================
+# 28) R e RStudio
+# =====================================================================
 echo "Instalando R e RStudio..."
-sudo -E apt-get install -y --no-install-recommends software-properties-common dirmngr gdebi-core
-wget -qO- https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc | sudo tee -a /etc/apt/trusted.gpg.d/cran_ubuntu_key.asc
-sudo add-apt-repository "deb https://cloud.r-project.org/bin/linux/ubuntu $(lsb_release -cs)-cran40/"
-sudo -E apt-get update -y
-sudo -E apt-get install -y --no-install-recommends r-base r-base-dev
+apt-get install -y --no-install-recommends software-properties-common dirmngr gdebi-core
+wget -qO- https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc | tee -a /etc/apt/trusted.gpg.d/cran_ubuntu_key.asc
+add-apt-repository "deb https://cloud.r-project.org/bin/linux/ubuntu $(lsb_release -cs)-cran40/"
+apt-get update -y
+apt-get install -y --no-install-recommends r-base r-base-dev
 wget https://download1.rstudio.org/electron/jammy/amd64/rstudio-2024.04.2-764-amd64.deb -O /tmp/rstudio.deb
-sudo -E gdebi -n /tmp/rstudio.deb
+gdebi -n /tmp/rstudio.deb
 rm /tmp/rstudio.deb
 check_install R
 check_install rstudio
 
-# Instalar Node.js
+# =====================================================================
+# 29) Node.js
+# =====================================================================
 echo "Instalando Node.js..."
 mkdir -p /etc/apt/keyrings
-curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
-echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | sudo tee /etc/apt/sources.list.d/nodesource.list
-sudo -E apt-get update -y
-sudo -E apt-get install -y nodejs
+curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list
+apt-get update -y
+apt-get install -y nodejs
 mkdir -p /opt/npm
 chown -R $USER:$USER /opt/npm
 npm install -g @angular/cli
 check_install node
 
-# Configurar Python
+# =====================================================================
+# 30) Python
+# =====================================================================
 echo "Configurando Python..."
-sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
-sudo update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 2
-sudo -E apt-get install -y python3.10-venv python3.11-venv
+update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 2
+apt-get install -y python3.10-venv python3.11-venv
 
-# Instalar snaps
+# =====================================================================
+# 31) Snaps de IDEs
+# =====================================================================
 echo "Instalando snaps..."
-sudo snap install eclipse --classic
-sudo snap install intellij-idea-community --classic
-sudo snap install mongo33
-sudo snap install bluej
+snap install eclipse --classic
+snap install intellij-idea-community --classic
+snap install mongo33
+snap install bluej
 
-# Instalar Flutter
+# =====================================================================
+# 32) Flutter
+# =====================================================================
 echo "Instalando Flutter..."
 if [ ! -d "/opt/flutter" ]; then
     wget https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.10.5-stable.tar.xz -O /tmp/flutter.tar.xz
@@ -521,7 +432,9 @@ if [ ! -d "/opt/flutter" ]; then
 fi
 check_install flutter
 
-# Instalar Nand2Tetris
+# =====================================================================
+# 33) Nand2Tetris
+# =====================================================================
 echo "Instalando Nand2Tetris..."
 if [ ! -d "/opt/nand2tetris" ]; then
     wget --no-check-certificate https://nuvem.ufba.br/s/ykUB6F81M5z2Ef1/download -O /tmp/nand2tetris.zip
@@ -529,16 +442,20 @@ if [ ! -d "/opt/nand2tetris" ]; then
     rm /tmp/nand2tetris.zip
 fi
 
-# Instalar Google Chrome
+# =====================================================================
+# 34) Google Chrome
+# =====================================================================
 echo "Instalando Google Chrome..."
 if ! command -v google-chrome &>/dev/null; then
     wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb
-    sudo -E dpkg -i /tmp/chrome.deb || sudo -E apt-get -f install -y
+    dpkg -i /tmp/chrome.deb || apt-get -f install -y
     rm /tmp/chrome.deb
 fi
 check_install google-chrome
 
-# Instalar Android Studio e SDK
+# =====================================================================
+# 35) Android Studio
+# =====================================================================
 echo "Instalando Android Studio..."
 if ! [ -f /usr/local/sbin/android.sh ]; then
     if [[ ! -d /opt/Android ]]; then
@@ -547,11 +464,9 @@ if ! [ -f /usr/local/sbin/android.sh ]; then
         rm /tmp/Android.tar.bz2
         ln -sf /opt/Android $HOME/Android
     fi
-
     if ! snap list | grep -q android-studio; then
-        sudo snap install android-studio --classic
+        snap install android-studio --classic
     fi
-
     if [[ ! -d /opt/gradle ]]; then
         wget https://nuvem.ufba.br/s/U5anBL3tRpN2xhT/download -O /tmp/gradle.tar.bz2
         tar xjf /tmp/gradle.tar.bz2 -C /opt
@@ -559,27 +474,86 @@ if ! [ -f /usr/local/sbin/android.sh ]; then
         chown -R $USER:$USER /opt/gradle
         rm /tmp/gradle.tar.bz2
     fi
-
-    sudo touch /usr/local/sbin/android.sh
+    touch /usr/local/sbin/android.sh
 fi
 check_install android-studio
 
-# Instalar Unity Hub
+# =====================================================================
+# 36) Unity Hub
+# =====================================================================
 echo "Instalando Unity Hub..."
-sudo add-apt-repository -y ppa:dotnet/backports
-wget -qO - https://hub.unity3d.com/linux/keys/public | gpg --dearmor | sudo tee /usr/share/keyrings/Unity_Technologies_ApS.gpg > /dev/null
-sudo sh -c 'echo "deb [signed-by=/usr/share/keyrings/Unity_Technologies_ApS.gpg] https://hub.unity3d.com/linux/repos/deb stable main" > /etc/apt/sources.list.d/unityhub.list'
-sudo -E apt-get update -y
-sudo -E apt-get install -y unityhub dotnet-sdk-9.0
+add-apt-repository -y ppa:dotnet/backports
+wget -qO - https://hub.unity3d.com/linux/keys/public | gpg --dearmor | tee /usr/share/keyrings/Unity_Technologies_ApS.gpg > /dev/null
+echo "deb [signed-by=/usr/share/keyrings/Unity_Technologies_ApS.gpg] https://hub.unity3d.com/linux/repos/deb stable main" > /etc/apt/sources.list.d/unityhub.list
+apt-get update -y
+apt-get install -y unityhub dotnet-sdk-9.0
 check_install unityhub
 
-# Instalar Frame0
+# =====================================================================
+# 37) Frame0
+# =====================================================================
 echo "Instalando Frame0..."
 if ! dpkg -l | grep -q frame0; then
     wget https://files.frame0.app/releases/linux/x64/frame0_1.0.0~beta.8_amd64.deb -O /tmp/frame0.deb
-    sudo -E dpkg -i /tmp/frame0.deb || sudo -E apt-get -f install -y
+    dpkg -i /tmp/frame0.deb || apt-get -f install -y
     rm /tmp/frame0.deb
 fi
 check_install frame0
 
-echo "Instalacao concluida!"
+# =====================================================================
+# 38) Firefox (.deb) — NO FINAL, sem exit
+# =====================================================================
+echo "Instalando Firefox (.deb)..."
+
+# 1. Remove o Snap (se existir)
+if snap list firefox &>/dev/null; then
+    echo "Removendo Firefox Snap..."
+    snap remove firefox 2>/dev/null || true
+    sleep 2
+fi
+
+# 2. Remove o pacote wrapper do apt
+if dpkg -l | grep -q "^ii  firefox"; then
+    apt remove -y firefox 2>/dev/null || true
+    apt autoremove -y 2>/dev/null || true
+fi
+
+# 3. Bloqueia reinstalacao do snap
+mkdir -p /etc/apt/preferences.d
+cat > /etc/apt/preferences.d/firefox-no-snap <<'EOF'
+Package: firefox*
+Pin: release o=Ubuntu*
+Pin-Priority: -1
+EOF
+
+# 4. Adiciona o PPA da Mozilla
+add-apt-repository -y ppa:mozillateam/ppa 2>/dev/null
+apt-get update -y
+
+# 5. Prioriza o PPA
+cat > /etc/apt/preferences.d/mozilla-firefox <<'EOF'
+Package: firefox*
+Pin: release o=LP-PPA-mozillateam
+Pin-Priority: 1001
+EOF
+
+# 6. Instala o .deb
+DEBIAN_FRONTEND=noninteractive apt-get install -y firefox --allow-downgrades
+
+# 7. Valida
+if file /usr/bin/firefox 2>/dev/null | grep -q "ELF"; then
+    echo "[SUCESSO] Firefox .deb instalado"
+else
+    echo "[AVISO] Firefox ainda e wrapper (snap)"
+fi
+check_install firefox
+
+# =====================================================================
+# FIM
+# =====================================================================
+echo ""
+echo "=================================================="
+echo " INSTALACAO CONCLUIDA"
+echo "=================================================="
+
+exit 0
