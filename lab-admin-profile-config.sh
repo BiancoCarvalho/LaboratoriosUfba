@@ -15,7 +15,7 @@
 
 export DEBIAN_FRONTEND=noninteractive
 
-USUARIO="NATI"
+USUARIO="nati"
 SENHA="@PNZ!2026"
 LOG="/var/log/lab.log"
 
