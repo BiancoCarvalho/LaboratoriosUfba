@@ -132,7 +132,6 @@ CHROME_POLICIES=$(cat <<EOF
 }
 EOF
 )
-
 if [ -d /opt/google/chrome ] || command -v google-chrome &>/dev/null; then
     mkdir -p /etc/opt/chrome/policies/managed
     echo "$CHROME_POLICIES" > /etc/opt/chrome/policies/managed/policies.json
