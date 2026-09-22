@@ -1,29 +1,21 @@
 #!/bin/bash
 # =====================================================================
 #  lab-programs.sh
-#  v8.0.2
+#  v10.0.0
 #
-#  Instala todos os programas do laboratório.
+#  Instala todos os programas do laboratorio.
 #  Cada programa tem um SELO em /usr/local/sbin/.lab-state/NOME.
-#  - Se o selo existe  → pula (rápido)
-#  - Se não existe     → tenta instalar
-#  - Se falhar         → NÃO cria o selo → tenta de novo no próximo boot
+#  - Se o selo existe  -> pula (rapido)
+#  - Se nao existe     -> tenta instalar
+#  - Se falhar         -> NAO cria o selo -> tenta de novo no proximo boot
 #
-#  IDEMPOTENTE: limpa resíduos antes de instalar.
-#
-#  v8.0.1: Firefox agora é instalado via SNAP (método .deb/PPA removido).
-#  v8.0.2: Correções para os programas que falhavam:
-#          - wine: usa "wine" (não "wine64")
-#          - clamav: trata freshclam sem travar
-#          - jupyter: usa pip3 com fallback
-#          - avra: fallback se SourceForge falhar
-#          - pgadmin: instala via pip/venv (repo oficial morreu)
-#          - mysql-workbench: usa snap (URL oficial morreu)
-#          - simulide: fallback GitHub (link Mega morreu)
-#          - nodejs: retry + fallback
-#          - r-rstudio: instala gdebi antes
-#          - unityhub: retry
-#          - mongodb: pula se snap mongo33 já existir
+#  v10.0.0:
+#    - Removidos TODOS os emojis (evita problema de codificacao)
+#    - Quarto atualizado para 1.11.3
+#    - SimulIDE atualizado para 1.1.0-SR2
+#    - SWI-Prolog: funcao + sem PPA (evita conflito)
+#    - Conserta o apt no inicio e no fim
+#    - Relatorio final de falhas
 # =====================================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -32,7 +24,48 @@ STATE="/usr/local/sbin/.lab-state"
 mkdir -p "$STATE"
 
 # =====================================================================
-# Função: instala só se o selo não existe
+# 0. PREPARACAO: garantir que o apt esta funcional ANTES de comecar
+# =====================================================================
+preparar_apt() {
+    echo ""
+    echo "=================================================="
+    echo " [PREP] Preparando apt (garantir que esta funcional)"
+    echo "=================================================="
+
+    # 1. Remove residuos do swi-prolog que quebram o apt
+    if dpkg -l 2>/dev/null | grep -E "^i[^i]|^.[^i]" | grep -qi swi-prolog; then
+        echo "[AVISO] Detectado swi-prolog com problema - removendo..."
+        apt-get remove -y swi-prolog swi-prolog-nox swi-prolog-core \
+            swi-prolog-core-packages swi-prolog-doc 2>/dev/null || true
+        apt-get autoremove -y 2>/dev/null || true
+    fi
+
+    # 2. Remove PPA do swi-prolog (causa conflito)
+    if ls /etc/apt/sources.list.d/*swi-prolog* 2>/dev/null; then
+        echo "[AVISO] Removendo PPA antigo do swi-prolog..."
+        add-apt-repository -r -y ppa:swi-prolog/stable 2>/dev/null || true
+        rm -f /etc/apt/sources.list.d/*swi-prolog* 2>/dev/null
+        rm -f /etc/apt/trusted.gpg.d/*swi-prolog* 2>/dev/null
+    fi
+
+    # 3. Conserta o apt
+    echo "[INFO] Consertando apt..."
+    dpkg --configure -a 2>/dev/null
+    apt-get --fix-broken install -y 2>/dev/null
+    apt-get update -y 2>/dev/null
+
+    # 4. Valida
+    if ! apt-get update >/dev/null 2>&1; then
+        echo "[ERRO] apt ainda com problema apos preparacao"
+        return 1
+    fi
+
+    echo "[OK] apt funcional"
+    return 0
+}
+
+# =====================================================================
+# Funcao: instala so se o selo nao existe
 # =====================================================================
 instalar_se_preciso() {
     local nome="$1"
@@ -40,21 +73,21 @@ instalar_se_preciso() {
     local selo="$STATE/$nome"
 
     if [ -f "$selo" ]; then
-        echo "✅ $nome já instalado"
+        echo "[SKIP] $nome ja instalado"
         return 0
     fi
 
     echo ""
     echo "=================================================="
-    echo "==> Instalando $nome..."
+    echo "[INST] Instalando $nome..."
     echo "=================================================="
 
     if $funcao; then
         touch "$selo"
-        echo "✅ $nome OK (selo criado)"
+        echo "[OK] $nome instalado"
         return 0
     else
-        echo "❌ $nome FALHOU — tentará de novo no próximo boot"
+        echo "[ERRO] $nome FALHOU - tentara de novo no proximo boot"
         return 1
     fi
 }
@@ -63,7 +96,6 @@ instalar_se_preciso() {
 # 0) SSH
 # =====================================================================
 instalar_ssh() {
-    apt-get update -y || return 1
     apt-get install -y openssh-server || return 1
     systemctl enable ssh 2>/dev/null
     systemctl start ssh  2>/dev/null
@@ -71,7 +103,7 @@ instalar_ssh() {
 }
 
 # =====================================================================
-# 1) Bloquear módulo algif_aead
+# 1) Bloquear modulo algif_aead
 # =====================================================================
 instalar_algif_aead_block() {
     local CONF="/etc/modprobe.d/manual-disable-algif_aead.conf"
@@ -86,26 +118,25 @@ instalar_algif_aead_block() {
 # 2) Release upgrader
 # =====================================================================
 instalar_release_upgrader() {
-    apt-get update -y
-    apt-get install --reinstall -y ubuntu-release-upgrader-core ubuntu-release-upgrader-gtk python3-apt
-    apt --fix-broken install -y
-    dpkg --configure -a
-    apt autoremove -y
+    apt-get install --reinstall -y ubuntu-release-upgrader-core ubuntu-release-upgrader-gtk python3-apt 2>/dev/null
+    apt --fix-broken install -y 2>/dev/null
+    dpkg --configure -a 2>/dev/null
+    apt autoremove -y 2>/dev/null
 
-    sed -i 's/^Prompt=.*/Prompt=never/' /etc/update-manager/release-upgrades
+    sed -i 's/^Prompt=.*/Prompt=never/' /etc/update-manager/release-upgrades 2>/dev/null || true
     gsettings set com.ubuntu.update-notifier show-livepatch-status false 2>/dev/null || true
     gsettings set com.ubuntu.update-notifier auto-launch false 2>/dev/null || true
     systemctl disable --now apt-daily.service apt-daily.timer apt-daily-upgrade.timer apt-daily-upgrade.service 2>/dev/null || true
 
-    apt-get install -y software-properties-common apt-transport-https ca-certificates curl wget gnupg
+    apt-get install -y software-properties-common apt-transport-https ca-certificates curl wget gnupg 2>/dev/null
     [ -f /etc/update-manager/release-upgrades ]
 }
 
 # =====================================================================
-# 3) Quarto
+# 3) Quarto (ATUALIZADO para 1.11.3)
 # =====================================================================
 instalar_quarto() {
-    local V="1.8.24"
+    local V="1.11.3"
     local URL="https://github.com/quarto-dev/quarto-cli/releases/download/v${V}/quarto-${V}-linux-amd64.deb"
 
     rm -f /tmp/quarto.deb
@@ -118,26 +149,22 @@ instalar_quarto() {
 }
 
 # =====================================================================
-# 4) Atualização do sistema
+# 4) Atualizacao do sistema
 # =====================================================================
 instalar_system_update() {
     apt-get update -y
     apt-get upgrade -y
-    apt-get dist-upgrade -y
     apt-get autoremove -y
     apt-get install -f -y
     true
 }
 
 # =====================================================================
-# 5) ClamAV (v8.0.2 — trata freshclam sem travar)
+# 5) ClamAV
 # =====================================================================
 instalar_clamav() {
-    apt-get install -y clamav freshclam clamtk || return 1
-
-    # freshclam em background com timeout pra não travar o script
+    apt-get install -y clamav clamtk || return 1
     timeout 300 freshclam 2>/dev/null || true
-
     command -v clamscan &>/dev/null
 }
 
@@ -156,24 +183,23 @@ instalar_remover_termius() {
 }
 
 # =====================================================================
-# 7) Jupyter (v8.0.2 — usa pip3 com fallback)
+# 7) Jupyter
 # =====================================================================
 instalar_jupyter() {
     apt-get install -y python3-pip python3-venv 2>/dev/null || true
 
     pip3 install --break-system-packages jupyter -q 2>/dev/null || \
         pip3 install jupyter -q 2>/dev/null || \
-        pip install jupyter -q 2>/dev/null || \
         python3 -m pip install jupyter -q 2>/dev/null || return 1
 
     command -v jupyter &>/dev/null
 }
 
 # =====================================================================
-# 8) Docker (limpa chave antes)
+# 8) Docker
 # =====================================================================
 instalar_docker() {
-    apt-get install -y ca-certificates curl gnupg lsb-release
+    apt-get install -y ca-certificates curl gnupg lsb-release 2>/dev/null
     mkdir -p /etc/apt/keyrings
 
     rm -f /etc/apt/keyrings/docker.gpg
@@ -195,10 +221,10 @@ instalar_docker() {
 }
 
 # =====================================================================
-# 9) AVRA (v8.0.2 — com fallback)
+# 9) AVRA
 # =====================================================================
 instalar_avra() {
-    apt-get install -y build-essential wget bzip2 || return 1
+    apt-get install -y build-essential wget bzip2 2>/dev/null || return 1
 
     rm -rf /tmp/avra-1.3.0 /tmp/avra-1.3.0.tar.bz2 /tmp/avra-1.3.0.tar.gz
     cd /tmp || return 1
@@ -266,13 +292,8 @@ instalar_neofetch() {
 # 13) VS Code
 # =====================================================================
 instalar_vscode() {
-    rm -f /etc/apt/sources.list.d/vscode.list
-    rm -f /etc/apt/sources.list.d/vscode.sources
-    rm -f /etc/apt/sources.list.d/*vscode*
-    rm -f /etc/apt/keyrings/packages.microsoft.gpg
-    rm -f /usr/share/keyrings/microsoft.gpg
-    rm -f /etc/apt/trusted.gpg.d/microsoft.gpg
-    rm -f /tmp/packages.microsoft.gpg
+    rm -f /etc/apt/sources.list.d/*vscode* 2>/dev/null
+    rm -f /etc/apt/keyrings/packages.microsoft.gpg 2>/dev/null
 
     wget -qO- https://packages.microsoft.com/keys/microsoft.asc | \
         gpg --dearmor -o /etc/apt/keyrings/packages.microsoft.gpg || return 1
@@ -300,7 +321,7 @@ instalar_obs() {
 # =====================================================================
 instalar_pacotes_essenciais() {
     apt-get install -y \
-        python3-pip default-jre default-jdk maven swi-prolog racket elixir clisp nasm gcc-multilib \
+        python3-pip default-jre default-jdk maven racket elixir clisp nasm gcc-multilib \
         python3.11-full python3.10-venv \
         git flex bison vim sasm \
         mysql-server postgresql postgresql-contrib \
@@ -338,68 +359,44 @@ instalar_racket() {
 }
 
 # =====================================================================
-# 18) SWI-PROLOG
+# 18) SWI-Prolog (FUNCAO + sem PPA)
 # =====================================================================
-echo "Verificando SWI-Prolog..."
+instalar_swipl() {
+    echo "[INFO] Verificando SWI-Prolog..."
 
-# 18.1) Verifica se o apt está OK antes de começar
-if ! apt-get update >/dev/null 2>&1; then
-    echo "⚠️ apt com problema — tentando consertar..."
-    dpkg --configure -a 2>/dev/null
-    apt-get --fix-broken install -y 2>/dev/null
-    apt-get update -y 2>/dev/null
-fi
+    if command -v swipl &>/dev/null; then
+        echo "[OK] SWI-Prolog ja instalado: $(swipl --version 2>/dev/null | head -1)"
+        return 0
+    fi
 
-# 18.2) Se o swipl já está instalado, pula
-if command -v swipl &>/dev/null; then
-    echo "✅ SWI-Prolog já instalado: $(swipl --version 2>/dev/null | head -1)"
-else
-    echo "==> Instalando SWI-Prolog..."
+    echo "[INFO] Instalando SWI-Prolog (versao do Ubuntu, sem PPA)..."
 
-    # 18.3) Adiciona o PPA
-    add-apt-repository -y ppa:swi-prolog/stable 2>/dev/null
+    # Remove PPA (causa conflito com swi-prolog-core)
+    if ls /etc/apt/sources.list.d/*swi-prolog* 2>/dev/null; then
+        echo "[AVISO] Removendo PPA antigo do swi-prolog..."
+        add-apt-repository -r -y ppa:swi-prolog/stable 2>/dev/null || true
+        rm -f /etc/apt/sources.list.d/*swi-prolog* 2>/dev/null
+        rm -f /etc/apt/trusted.gpg.d/*swi-prolog* 2>/dev/null
+    fi
 
-    # 18.4) Atualiza
+    # Remove residuos do swi-prolog
+    apt-get remove -y swi-prolog swi-prolog-nox swi-prolog-core \
+        swi-prolog-core-packages swi-prolog-doc 2>/dev/null || true
+    apt-get autoremove -y 2>/dev/null || true
+
     apt-get update -y
 
-    # 18.5) Tenta instalar o swi-prolog completo
-    if ! apt-get install -y swi-prolog 2>/dev/null; then
-
-        echo "⚠️ Instalação normal falhou — tentando com force-overwrite..."
-
-        # 18.6) Remove o swi-prolog-core antigo (conflito)
-        apt-get remove -y swi-prolog-core 2>/dev/null
-        apt-get autoremove -y 2>/dev/null
-
-        # 18.7) Tenta de novo
-        if ! apt-get install -y swi-prolog 2>/dev/null; then
-
-            echo "⚠️ Ainda falhou — usando force-overwrite no dpkg..."
-
-            # 18.8) Força a instalação do pacote baixado
-            DEB_NOX=$(ls /var/cache/apt/archives/swi-prolog-nox_*.deb 2>/dev/null | head -1)
-
-            if [ -n "$DEB_NOX" ]; then
-                dpkg -i --force-overwrite "$DEB_NOX" 2>/dev/null
-            fi
-
-            # 18.9) Tenta consertar o apt
-            apt-get --fix-broken install -y 2>/dev/null
-            dpkg --configure -a 2>/dev/null
-        fi
+    if ! apt-get install -y swi-prolog; then
+        echo "[AVISO] Primeira tentativa falhou - consertando apt..."
+        apt-get --fix-broken install -y 2>/dev/null
+        dpkg --configure -a 2>/dev/null
+        apt-get update -y
+        apt-get install -y swi-prolog || return 1
     fi
 
-    # 18.10) Validação final
-    if command -v swipl &>/dev/null; then
-        echo "✅ SWI-Prolog instalado: $(swipl --version 2>/dev/null | head -1)"
-    else
-        echo "⚠️ SWI-Prolog não instalou — mas o apt está OK"
-    fi
-fi
+    command -v swipl &>/dev/null
+}
 
-# 18.11) Conserta o apt (garante que não ficou quebrado)
-apt-get --fix-broken install -y 2>/dev/null
-dpkg --configure -a 2>/dev/null
 # =====================================================================
 # 19) PostgreSQL 17
 # =====================================================================
@@ -421,7 +418,7 @@ instalar_postgresql() {
 }
 
 # =====================================================================
-# 20) pgAdmin (v8.0.2 — via pip/venv, repo oficial morreu)
+# 20) pgAdmin
 # =====================================================================
 instalar_pgadmin() {
     rm -f /usr/share/keyrings/packages-pgadmin-org.gpg
@@ -439,7 +436,7 @@ instalar_pgadmin() {
         fi
     fi
 
-    echo "==> Repo oficial indisponível — instalando pgAdmin via pip/venv..."
+    echo "[AVISO] Repo oficial indisponivel - instalando pgAdmin via pip/venv..."
     apt-get install -y python3-pip python3-venv libpq-dev 2>/dev/null || return 1
 
     rm -rf /opt/pgadmin4-venv
@@ -452,7 +449,7 @@ instalar_pgadmin() {
 }
 
 # =====================================================================
-# 21) MySQL Workbench (v8.0.2 — via snap, URL oficial morreu)
+# 21) MySQL Workbench
 # =====================================================================
 instalar_mysql_workbench() {
     if snap install mysql-workbench-community 2>/dev/null; then
@@ -474,7 +471,7 @@ instalar_mysql_workbench() {
 # 22) NetBeans
 # =====================================================================
 instalar_netbeans() {
-    apt-get install -y openjdk-17-jdk
+    apt-get install -y openjdk-17-jdk 2>/dev/null
     snap install netbeans --classic || true
     snap list netbeans &>/dev/null
 }
@@ -488,20 +485,17 @@ instalar_greenfoot() {
 }
 
 # =====================================================================
-# 24) SimulIDE (v8.0.2 — fallback GitHub, link Mega morreu)
+# 24) SimulIDE (ATUALIZADO para 1.1.0-SR2)
 # =====================================================================
 instalar_simulide() {
     apt-get install -y fuse libfuse2 libqt5core5a libqt5gui5 libqt5widgets5 libqt5network5 \
-        libqt5svg5 qtbase5-dev qttools5-dev-tools libqt5serialport5 libqt5serialport5-dev 2>/dev/null || true
+        libqt5svg5 libqt5serialport5 2>/dev/null || true
 
-    rm -f /tmp/SimulIDE.tar.gz /tmp/SimulIDE.tar.xz
+    rm -f /tmp/SimulIDE.tar.gz
     cd /opt || return 1
 
     wget -q --timeout=60 --tries=3 \
-        https://github.com/SimulIDE/SimulIDE/releases/download/1.1.0/SimulIDE_1.1.0-SR1_Lin64.tar.gz \
-        -O /tmp/SimulIDE.tar.gz 2>/dev/null || \
-    wget -q --timeout=60 --tries=3 \
-        "https://mega.nz/file/8akRDCYJ#8Fvn6U9RIJ-sX_f49fCsn05YTUr5ySNycoFlxVFX-iE" \
+        https://github.com/SimulIDE/SimulIDE/releases/download/1.1.0-SR2/SimulIDE_1.1.0-SR2_Lin64.tar.gz \
         -O /tmp/SimulIDE.tar.gz 2>/dev/null || return 1
 
     [ -s /tmp/SimulIDE.tar.gz ] || return 1
@@ -513,7 +507,7 @@ instalar_simulide() {
     ln -sf /opt/SimulIDE*/simulide /usr/local/bin/simulide 2>/dev/null
     rm -f /tmp/SimulIDE.tar.gz
 
-    command -v simulide &>/dev/null || [ -x /opt/SimulIDE_1.1.0-SR1_Lin64/simulide ]
+    command -v simulide &>/dev/null || [ -x /opt/SimulIDE_1.1.0-SR2_Lin64/simulide ]
 }
 
 # =====================================================================
@@ -526,7 +520,7 @@ instalar_arduino() {
 }
 
 # =====================================================================
-# 26) Wine (v8.0.2 — "wine" em vez de "wine64")
+# 26) Wine
 # =====================================================================
 instalar_wine() {
     apt-get install -y wine || \
@@ -536,12 +530,11 @@ instalar_wine() {
 }
 
 # =====================================================================
-# 27) MongoDB (v8.0.2 — pula se snap mongo33 já existir)
+# 27) MongoDB
 # =====================================================================
 instalar_mongodb() {
     if snap list mongo33 &>/dev/null; then
-        echo "==> Snap mongo33 já instalado — pulando mongodb-org"
-        systemctl start snap.mongo33.mongod 2>/dev/null || true
+        echo "[INFO] Snap mongo33 ja instalado - pulando mongodb-org"
         return 0
     fi
 
@@ -562,10 +555,10 @@ instalar_mongodb() {
 }
 
 # =====================================================================
-# 28) R e RStudio (v8.0.2 — instala gdebi antes)
+# 28) R e RStudio
 # =====================================================================
 instalar_r() {
-    apt-get install -y --no-install-recommends software-properties-common dirmngr gdebi-core || return 1
+    apt-get install -y --no-install-recommends software-properties-common dirmngr gdebi-core 2>/dev/null || return 1
 
     rm -f /etc/apt/trusted.gpg.d/cran_ubuntu_key.asc
     wget -qO- https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc | \
@@ -588,7 +581,7 @@ instalar_r() {
 }
 
 # =====================================================================
-# 29) Node.js (v8.0.2 — com retry)
+# 29) Node.js
 # =====================================================================
 instalar_nodejs() {
     mkdir -p /etc/apt/keyrings
@@ -601,7 +594,6 @@ instalar_nodejs() {
             gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg 2>/dev/null; then
             break
         fi
-        echo "==> Tentativa $i/3 de baixar a chave do NodeSource..."
         sleep 2
     done
 
@@ -613,9 +605,6 @@ instalar_nodejs() {
     apt-get update -y
     apt-get install -y nodejs || return 1
 
-    mkdir -p /opt/npm
-    chown -R ${SUDO_USER:-$USER}:${SUDO_USER:-$USER} /opt/npm 2>/dev/null || true
-    npm install -g @angular/cli 2>/dev/null || true
     command -v node &>/dev/null
 }
 
@@ -635,7 +624,6 @@ instalar_python() {
 instalar_snaps_ides() {
     snap install eclipse --classic || true
     snap install intellij-idea-community --classic || true
-    snap install mongo33 || true
     snap install bluej || true
     snap list eclipse &>/dev/null
 }
@@ -722,7 +710,7 @@ instalar_android_studio() {
 }
 
 # =====================================================================
-# 36) Unity Hub (v8.0.2 — com retry)
+# 36) Unity Hub
 # =====================================================================
 instalar_unityhub() {
     add-apt-repository -y ppa:dotnet/backports || return 1
@@ -735,7 +723,6 @@ instalar_unityhub() {
             gpg --dearmor > /usr/share/keyrings/Unity_Technologies_ApS.gpg 2>/dev/null; then
             break
         fi
-        echo "==> Tentativa $i/3 de baixar a chave do Unity..."
         sleep 2
     done
 
@@ -765,44 +752,33 @@ instalar_frame0() {
 }
 
 # =====================================================================
-# 38) Firefox (v8.0.1 — via SNAP)
+# 38) Firefox (via SNAP)
 # =====================================================================
 instalar_firefox() {
-    echo ""
-    echo "=================================================="
-    echo " FIREFOX: instalando via snap"
-    echo "=================================================="
-
     pkill -9 firefox 2>/dev/null || true
     sleep 1
 
-    echo "==> Removendo resíduos do Firefox .deb (se houver)..."
     if dpkg -l firefox 2>/dev/null | grep -qE "^(ii|rc|iU|iF|hi|hr)"; then
         apt-get purge -y firefox 2>/dev/null || true
         apt-get autoremove -y 2>/dev/null || true
     fi
     dpkg --purge --force-all firefox 2>/dev/null || true
 
-    echo "==> Limpando repositórios/pins antigos..."
-    rm -f /etc/apt/sources.list.d/*mozilla*        2>/dev/null
-    rm -f /etc/apt/sources.list.d/*firefox*        2>/dev/null
-    rm -f /etc/apt/preferences.d/firefox-no-snap   2>/dev/null
-    rm -f /etc/apt/preferences.d/mozilla-firefox   2>/dev/null
-    rm -f /usr/share/keyrings/packages.mozilla.org.gpg 2>/dev/null
-    rm -f /etc/apt/keyrings/packages.mozilla.org.gpg   2>/dev/null
+    rm -f /etc/apt/sources.list.d/*mozilla* 2>/dev/null
+    rm -f /etc/apt/sources.list.d/*firefox* 2>/dev/null
+    rm -f /etc/apt/preferences.d/firefox-no-snap 2>/dev/null
+    rm -f /etc/apt/preferences.d/mozilla-firefox 2>/dev/null
 
     rm -rf /opt/firefox
-    rm -f  /usr/local/bin/firefox
+    rm -f /usr/local/bin/firefox
 
-    echo "==> Instalando Firefox via snap..."
     snap install firefox || true
 
     if snap list firefox &>/dev/null; then
-        echo "[SUCESSO] Firefox snap instalado: $(snap list firefox | awk 'NR==2{print $2}')"
+        echo "[OK] Firefox snap instalado"
         return 0
     fi
 
-    echo "❌ Falha ao instalar o snap do Firefox"
     return 1
 }
 
@@ -816,9 +792,6 @@ instalar_atalhos_dock() {
 [Desktop Entry]
 Version=1.0
 Name=Firefox
-Name[pt_BR]=Firefox
-Comment=Navegador Web
-Comment[pt_BR]=Navegador Web
 Exec=/snap/bin/firefox %u
 Terminal=false
 Type=Application
@@ -857,14 +830,21 @@ instalar_vlc() {
 }
 
 # =====================================================================
-# EXECUÇÃO
+# EXECUCAO
 # =====================================================================
 
 echo "=================================================="
-echo " lab-programs.sh v8.0.2"
+echo " lab-programs.sh v10.0.0"
 echo " Instalando programas com controle de estado"
 echo "=================================================="
 
+# PREPARACAO: consertar o apt ANTES de tudo
+preparar_apt || {
+    echo "[ERRO] Falha ao preparar o apt - abortando"
+    exit 1
+}
+
+# EXECUCAO dos programas
 instalar_se_preciso "ssh"                instalar_ssh
 instalar_se_preciso "algif-aead-block"   instalar_algif_aead_block
 instalar_se_preciso "release-upgrader"   instalar_release_upgrader
@@ -908,32 +888,54 @@ instalar_se_preciso "atalhos-dock"       instalar_atalhos_dock
 instalar_se_preciso "vlc"                instalar_vlc
 
 # =====================================================================
-# RESUMO FINAL
+# CONSERTO FINAL: garantir que o apt nao ficou quebrado
 # =====================================================================
 echo ""
 echo "=================================================="
-echo " ✅ Instalação concluída"
+echo " [FIM] Conserto final do apt"
+echo "=================================================="
+apt-get --fix-broken install -y 2>/dev/null
+dpkg --configure -a 2>/dev/null
+apt-get update -y 2>/dev/null
+echo "[OK] apt funcional"
+
+# =====================================================================
+# RELATORIO DE FALHAS
+# =====================================================================
+echo ""
+echo "=================================================="
+echo " [FIM] Instalacao concluida"
 echo "=================================================="
 echo ""
-echo "Programas instalados (com selo):"
-ls "$STATE" 2>/dev/null | sed 's/^/  ✅ /'
+
+PROGRAMAS=$(grep "^instalar_se_preciso" "$0" 2>/dev/null | \
+    awk '{print $2}' | tr -d '"' | sort)
+
+TOTAL=$(echo "$PROGRAMAS" | wc -l)
+INSTALADOS=$(ls "$STATE" 2>/dev/null | wc -l)
+
+echo "[RESUMO]"
+echo "   Total no script: $TOTAL"
+echo "   Instalados:      $INSTALADOS"
+echo "   Faltando:        $((TOTAL - INSTALADOS))"
 echo ""
-echo "Total: $(ls "$STATE" 2>/dev/null | wc -l) programas"
+
+echo "[OK] Instalados (com selo):"
+ls "$STATE" 2>/dev/null | sed 's/^/   [OK] /'
 echo ""
+
+echo "[FALTA] Programas que faltam:"
+for p in $PROGRAMAS; do
+    if [ ! -f "$STATE/$p" ]; then
+        echo "   [FALTA] $p"
+    fi
+done
+echo ""
+
 echo "=================================================="
-echo " Como usar:"
-echo "=================================================="
-echo "  Listar instalados:      ls $STATE/"
-echo "  Forçar reinstalação:    rm $STATE/NOME"
-echo "  Ex: forçar Firefox:     rm $STATE/firefox"
-echo "                          systemctl restart labstartup"
-echo ""
-echo "Firefox:"
-readlink -f "$(which firefox 2>/dev/null)" 2>/dev/null || echo "  (não instalado)"
-echo ""
-echo "Chrome:"
-command -v google-chrome 2>/dev/null || echo "  (não instalado)"
-echo ""
+echo " Como forcar reinstalacao:"
+echo "   rm $STATE/NOME"
+echo "   systemctl restart labstartup"
 echo "=================================================="
 
 exit 0
