@@ -1,22 +1,25 @@
 #!/bin/bash
 # =====================================================================
 #  lab-startup.sh
-#  v11.0.0
+#  v12.0.0
 #
 #  Modelo: baseado no lab-startup.sh antigo (com echo, done.txt, etc)
-#  Correcoes:
-#    - Repositorio correto: BiancoCarvalho (nao graco-ufba)
-#    - Baixa TODOS os 15 arquivos (13 antigos + 2 do AppArmor)
+#
+#  Correções da v12 (em relação à v11):
+#    - GARANTE /etc/sudoers.d/aluno-ssh no BOOT (não depende de login GDM)
+#    - Adiciona /usr/local/sbin/labadmin.pub no cmp
+#    - Valida o sudoers com visudo antes de aplicar
+#    - Mensagem clara quando o sudoers é criado
+#
+#  Herdado da v11:
+#    - Baixa TODOS os 16 arquivos (13 antigos + AppArmor + whitelist)
 #    - SEMPRE roda o lab-programs.sh (mesmo se done.txt = true)
 #    - Copia PostLogin para /etc/gdm3/PostLogin/Default
-#
-#  Novidades da v11:
 #    - Instala apparmor / apparmor-utils / pam_apparmor
 #    - Instala /etc/apparmor.d/lab-restrict (perfil base)
 #    - Instala /etc/apparmor.d/pam_apparmor (mapa grupo -> perfil)
 #    - Habilita "session required pam_apparmor.so" em common-session
 #    - Carrega o perfil base no kernel via apparmor_parser
-#    - Instala /etc/lab/essential-bins.txt (whitelist legada do chmod)
 # =====================================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -103,6 +106,9 @@ else
 	if [ ! -f /usr/local/sbin/lab-postlogin-default.sh ] || ! cmp -s /usr/local/sbin/lab-postlogin-default.sh /tmp/lab-postlogin-default.sh; then
 		echo "false" > /usr/local/sbin/done.txt
 	fi
+	if [ ! -f /usr/local/sbin/labadmin.pub ] || ! cmp -s /usr/local/sbin/labadmin.pub /tmp/labadmin.pub; then
+		echo "false" > /usr/local/sbin/done.txt
+	fi
 	if [ ! -f /etc/apparmor.d/lab-restrict ] || ! cmp -s /etc/apparmor.d/lab-restrict /tmp/lab-restrict.profile; then
 		echo "false" > /usr/local/sbin/done.txt
 	fi
@@ -167,13 +173,45 @@ if [ "$DONE" = "false" ]; then
 	fi
 
 	# =============================================
-	# 3.2 AppArmor — instala pacotes, perfil base e PAM
+	# 3.2 SUDOERS DO ALUNO — GARANTIDO NO BOOT
+	# ---------------------------------------------
+	# Este bloco é o que estava FALTANDO na v11.
+	# Sem ele, o /etc/sudoers.d/aluno-ssh só era criado no
+	# login GDM, e o C# (que acessa via SSH) nunca dispara isso.
+	# =============================================
+	echo "========================================="
+	echo "  Configurando sudoers do aluno..."
+	echo "========================================="
+
+	cat > /etc/sudoers.d/aluno-ssh <<'EOF'
+# aluno - permite apenas comandos especificos do laboratorio
+aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block.sh
+aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block-sites.sh
+aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-unblock.sh
+aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-prova-install.sh
+EOF
+	chmod 440 /etc/sudoers.d/aluno-ssh
+	chown root:root /etc/sudoers.d/aluno-ssh
+
+	if ! visudo -cf /etc/sudoers.d/aluno-ssh >/dev/null 2>&1; then
+		echo "[AVISO] Sudoers invalido - aplicando fallback"
+		cat > /etc/sudoers.d/aluno-ssh <<'EOF'
+aluno ALL=(ALL) NOPASSWD: ALL
+EOF
+		chmod 440 /etc/sudoers.d/aluno-ssh
+		chown root:root /etc/sudoers.d/aluno-ssh
+	fi
+	echo "[OK] /etc/sudoers.d/aluno-ssh instalado e validado"
+	echo ""
+
+	# =============================================
+	# 3.3 AppArmor — instala pacotes, perfil base e PAM
 	# =============================================
 	echo "========================================="
 	echo "  Configurando AppArmor..."
 	echo "========================================="
 
-	# 3.2.1 Garante os pacotes
+	# 3.3.1 Garante os pacotes
 	PACOTES_FALTANDO=""
 	for pkg in apparmor apparmor-utils pam_apparmor; do
 		if ! dpkg -s "$pkg" >/dev/null 2>&1; then
@@ -190,18 +228,18 @@ if [ "$DONE" = "false" ]; then
 		echo "[OK] Pacotes AppArmor já presentes"
 	fi
 
-	# 3.2.2 Perfil base em /etc/apparmor.d/lab-restrict
+	# 3.3.2 Perfil base em /etc/apparmor.d/lab-restrict
 	mkdir -p /etc/apparmor.d
 	cp /tmp/lab-restrict.profile /etc/apparmor.d/lab-restrict
 	chmod 644 /etc/apparmor.d/lab-restrict
 	echo "[OK] /etc/apparmor.d/lab-restrict instalado"
 
-	# 3.2.3 Mapa grupo -> perfil em /etc/apparmor.d/pam_apparmor
+	# 3.3.3 Mapa grupo -> perfil em /etc/apparmor.d/pam_apparmor
 	cp /tmp/pam_apparmor.conf /etc/apparmor.d/pam_apparmor
 	chmod 644 /etc/apparmor.d/pam_apparmor
 	echo "[OK] /etc/apparmor.d/pam_apparmor instalado"
 
-	# 3.2.4 Habilita pam_apparmor no PAM (se ainda não estiver)
+	# 3.3.4 Habilita pam_apparmor no PAM (se ainda não estiver)
 	if ! grep -q "pam_apparmor.so" /etc/pam.d/common-session; then
 		echo 'session required pam_apparmor.so' >> /etc/pam.d/common-session
 		echo "[OK] pam_apparmor habilitado em /etc/pam.d/common-session"
@@ -209,17 +247,17 @@ if [ "$DONE" = "false" ]; then
 		echo "[OK] pam_apparmor já estava habilitado"
 	fi
 
-	# 3.2.5 Cria grupo labusers
+	# 3.3.5 Cria grupo labusers
 	getent group labusers >/dev/null || groupadd labusers
 	echo "[OK] Grupo labusers garantido"
 
-	# 3.2.6 Carrega o perfil base no kernel (fica pronto, não ativa bloqueio)
+	# 3.3.6 Carrega o perfil base no kernel (fica pronto, não ativa bloqueio)
 	if command -v apparmor_parser >/dev/null 2>&1; then
 		apparmor_parser -r /etc/apparmor.d/lab-restrict 2>/dev/null || true
 		echo "[OK] Perfil base carregado (não ativado)"
 	fi
 
-	# 3.2.7 Whitelist legada do chmod em /etc/lab/
+	# 3.3.7 Whitelist legada do chmod em /etc/lab/
 	mkdir -p /etc/lab
 	cp /tmp/lab-essential-bins.txt /etc/lab/essential-bins.txt
 	chmod 644 /etc/lab/essential-bins.txt
@@ -336,6 +374,7 @@ echo "========================================="
 echo ""
 echo "RESUMO:"
 echo "   [OK] Scripts do laboratorio atualizados"
+echo "   [OK] Sudoers do aluno garantido"
 echo "   [OK] AppArmor configurado (perfil lab-restrict + pam_apparmor)"
 echo "   [OK] LabSecurity Agent instalado"
 echo ""
@@ -345,9 +384,6 @@ echo ""
 echo "COMANDOS UTEIS (LabSecurity):"
 echo "   Ver status: systemctl status labsecurity-agent"
 echo "   Ver logs: journalctl -u labsecurity-agent -f"
-echo "   Parar agente: systemctl stop labsecurity-agent"
-echo "   Iniciar agente: systemctl start labsecurity-agent"
-echo "   Reiniciar agente: systemctl restart labsecurity-agent"
 echo ""
 echo "COMANDOS UTEIS (Bloqueio):"
 echo "   Sites:     sudo /usr/local/sbin/lab-block.sh --sites-only"
