@@ -85,6 +85,57 @@ sudo -E apt-get autoremove -y
 sudo -E apt-get install -f -y
 
 
+echo "========================================="
+echo "  Removendo Firefox Snap e instalando .deb"
+echo "========================================="
+
+# 1. Remove o Firefox Snap (se existir)
+if snap list firefox &>/dev/null; then
+    echo "==> Removendo Firefox Snap..."
+    sudo snap remove firefox
+    sleep 2
+else
+    echo "==> Firefox Snap nao encontrado"
+fi
+
+# 2. Remove o pacote 'firefox' do APT (que era um wrapper para o Snap)
+if dpkg -l | grep -q "^ii  firefox"; then
+    echo "==> Removendo pacote 'firefox' do APT (wrapper)..."
+    sudo apt remove -y firefox
+    sudo apt autoremove -y
+fi
+
+# 3. Adiciona o PPA da Mozilla (fornece o .deb)
+echo "==> Adicionando PPA da Mozilla..."
+sudo add-apt-repository -y ppa:mozillateam/ppa
+sudo apt update -y
+
+# 4. Prioriza o .deb do PPA sobre o Snap do Ubuntu
+echo "==> Configurando prioridade do PPA..."
+cat << 'EOF' | sudo tee /etc/apt/preferences.d/mozilla-firefox > /dev/null
+Package: firefox*
+Pin: release o=LP-PPA-mozillateam
+Pin-Priority: 1001
+
+Package: firefox*
+Pin: release o=Ubuntu*
+Pin-Priority: -1
+EOF
+
+# 5. Instala o Firefox .deb
+echo "==> Instalando Firefox .deb..."
+sudo apt install -y firefox --allow-downgrades
+
+# 6. Verifica se instalou como .deb (ELF) e nao como script wrapper
+echo "==> Verificando instalacao..."
+if file /usr/bin/firefox | grep -q "ELF"; then
+    echo "[SUCESSO] Firefox .deb instalado: $(firefox --version 2>/dev/null | head -1)"
+else
+    echo "[ERRO] Firefox ainda e script wrapper (Snap)"
+    echo "       Caminho: $(readlink -f $(which firefox))"
+fi
+
+exit 0
 
 # =====================================================================
 # 0) SSH (instalar e configurar)
