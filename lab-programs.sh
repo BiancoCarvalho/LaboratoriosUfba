@@ -19,14 +19,6 @@ export DEBIAN_FRONTEND=noninteractive
 # BLOQUEAR MODULO algif_aead (Copy Fail CVE-2026-31431)
 # ==============================
 
-instalar_ssh() {
-    apt-get update -y || return 1
-    apt-get install -y openssh-server || return 1
-    systemctl enable ssh 2>/dev/null
-    systemctl start ssh  2>/dev/null
-    systemctl is-active --quiet ssh
-}
-
 
 # Funcao para verificar instalacao
 check_install() {
@@ -92,6 +84,29 @@ sudo -E apt-get dist-upgrade -y
 sudo -E apt-get autoremove -y
 sudo -E apt-get install -f -y
 
+
+
+# =====================================================================
+# 0) SSH (instalar e configurar)
+# =====================================================================
+echo "Instalando SSH..."
+sudo apt-get update -y
+sudo apt-get install -y openssh-server
+sudo systemctl enable ssh
+sudo systemctl start ssh
+sleep 1
+
+if systemctl is-active --quiet ssh; then
+    echo "[SUCESSO] SSH rodando"
+elif ss -tlnp 2>/dev/null | grep -q ":22 "; then
+    echo "[SUCESSO] SSH escutando na porta 22"
+elif [ -x /usr/sbin/sshd ]; then
+    echo "[SUCESSO] sshd existe"
+else
+    echo "[ERRO] Falha ao instalar SSH"
+fi
+
+
 # Instalar ClamAV (antivirus) e ClamTK (interface grafica)
 echo "Instalando ClamAV e ClamTK..."
 sudo -E apt-get update -y
@@ -134,15 +149,26 @@ sudo usermod -aG docker $USERNAME
 echo "Docker instalado e usuario $USERNAME adicionado ao grupo docker. Faca logout/login para aplicar as permissoes."
 check_install docker
 
-# Instalar AVRA 1.3.0 (SourceForge)
-echo "Instalando AVRA 1.3.0 (SourceForge)..."
+# Instalar AVRA 1.3.0 (SourceForge + GitHub fallback)
+echo "Instalando AVRA 1.3.0..."
 sudo apt-get install -y build-essential wget bzip2
+rm -rf /tmp/avra-*
 cd /tmp
-wget https://downloads.sourceforge.net/project/avra/1.3.0/avra-1.3.0.tar.bz2
-tar -xjf avra-1.3.0.tar.bz2
-cd avra-1.3.0
-make
-sudo make install
+
+if wget -q --timeout=30 --tries=2 "https://downloads.sourceforge.net/project/avra/1.3.0/avra-1.3.0.tar.bz2" -O avra-1.3.0.tar.bz2 && [ -s avra-1.3.0.tar.bz2 ]; then
+    tar -xjf avra-1.3.0.tar.bz2
+    cd avra-1.3.0
+elif wget -q --timeout=30 --tries=2 "https://github.com/Ro5bert/avra/archive/refs/tags/1.3.0.tar.gz" -O avra-1.3.0.tar.gz && [ -s avra-1.3.0.tar.gz ]; then
+    tar -xzf avra-1.3.0.tar.gz
+    cd avra-1.3.0
+fi
+
+if [ -f Makefile ]; then
+    make
+    sudo make install
+    cd /
+    rm -rf /tmp/avra-*
+fi
 check_install avra
 
 # Instalar Ollama
@@ -268,11 +294,28 @@ sudo sh -c 'echo "deb [signed-by=/usr/share/keyrings/packages-pgadmin-org.gpg] h
 sudo -E apt-get update -y
 sudo -E apt-get install -y pgadmin4-web pgadmin4-desktop
 
-# Instalar MySQL Workbench
+# =====================================================================
+# MySQL Workbench (v12.0.0 - via snap)
+# =====================================================================
 echo "Instalando MySQL Workbench..."
-wget http://cdn.mysql.com/Downloads/MySQLGUITools/mysql-workbench-community_8.0.34-1ubuntu22.04_amd64.deb -O /tmp/mysql-workbench.deb
-sudo -E dpkg -i /tmp/mysql-workbench.deb || sudo -E apt-get -f install -y
-rm /tmp/mysql-workbench.deb
+
+# Tenta snap primeiro (mais confiavel)
+if ! snap list mysql-workbench-community &>/dev/null; then
+    sudo snap install mysql-workbench-community 2>/dev/null || true
+fi
+
+if snap list mysql-workbench-community &>/dev/null; then
+    echo "[SUCESSO] mysql-workbench via snap"
+else
+    # Fallback: .deb
+    wget -q --timeout=60 --tries=2 \
+        "https://dev.mysql.com/get/Downloads/MySQLGUITools/mysql-workbench-community_8.0.34-1ubuntu22.04_amd64.deb" \
+        -O /tmp/mysql-workbench.deb
+    if [ -s /tmp/mysql-workbench.deb ]; then
+        sudo -E dpkg -i /tmp/mysql-workbench.deb || sudo -E apt-get -f install -y
+        rm /tmp/mysql-workbench.deb
+    fi
+fi
 check_install mysql-workbench
 
 # Instalar NetBeans via Snap
@@ -286,18 +329,32 @@ echo "Instalando Greenfoot..."
 sudo snap install greenfoot
 check_install greenfoot
 
-# Instalar SimulIDE (atualizado para 1.1.0-SR2)
+# =====================================================================
+# SimulIDE (v12.0.0 - 3 URLs)
+# =====================================================================
 echo "Instalando SimulIDE..."
 sudo -E apt-get install -y fuse libfuse2 libqt5core5a libqt5gui5 libqt5widgets5 libqt5network5 libqt5svg5 qtbase5-dev qttools5-dev-tools libqt5serialport5 libqt5serialport5-dev
+
 if [ ! -f /usr/local/bin/simulide ]; then
     cd /opt
-    wget -q --timeout=60 --tries=3 \
+    for URL in \
         "https://github.com/SimulIDE/SimulIDE/releases/download/1.1.0-SR2/SimulIDE_1.1.0-SR2_Lin64.tar.gz" \
-        -O /tmp/SimulIDE.tar.gz
+        "https://github.com/SimulIDE/SimulIDE/releases/download/1.1.0/SimulIDE_1.1.0-SR1_Lin64.tar.gz" \
+        "https://github.com/SimulIDE/SimulIDE/releases/download/1.0.0/SimulIDE_1.0.0-SR0_Lin64.tar.gz"; do
+
+        echo "Tentando: $URL"
+        wget -q --timeout=60 --tries=2 "$URL" -O /tmp/SimulIDE.tar.gz
+        if [ -s /tmp/SimulIDE.tar.gz ]; then
+            echo "[OK] Baixou"
+            break
+        fi
+        rm -f /tmp/SimulIDE.tar.gz
+    done
+
     if [ -s /tmp/SimulIDE.tar.gz ]; then
-        tar -xzf /tmp/SimulIDE.tar.gz -C /opt
-        chmod +x /opt/SimulIDE_1.1.0-SR2_Lin64/simulide 2>/dev/null
-        ln -sf /opt/SimulIDE_1.1.0-SR2_Lin64/simulide /usr/local/bin/simulide 2>/dev/null
+        sudo tar -xzf /tmp/SimulIDE.tar.gz -C /opt
+        sudo chmod +x /opt/SimulIDE*/simulide 2>/dev/null
+        sudo ln -sf /opt/SimulIDE*/simulide /usr/local/bin/simulide 2>/dev/null
         rm /tmp/SimulIDE.tar.gz
     fi
 fi
