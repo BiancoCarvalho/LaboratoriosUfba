@@ -3,8 +3,8 @@
 #  lab-startup.sh
 #  v9.0.0
 #
-#  SEMPRE roda o lab-programs.sh (que tem selos).
-#  O lab-programs.sh decide o que precisa ser instalado.
+#  SEMPRE baixa, SEMPRE compara, SEMPRE roda.
+#  Sem done.txt. Sem pular. Sem desculpa.
 # =====================================================================
 
 set +e
@@ -35,7 +35,7 @@ ARQUIVOS=(
 )
 
 # =====================================================================
-# 1. Baixa os scripts
+# 1. SEMPRE baixa (com validação)
 # =====================================================================
 log ""
 log "==> Baixando scripts do repositório..."
@@ -45,7 +45,7 @@ for f in "${ARQUIVOS[@]}"; do
     destino="/tmp/$f"
     rm -f "$destino"
 
-    if wget -q "$REPO/$f" -O "$destino" 2>/dev/null; then
+    if wget -q --timeout=30 --tries=3 "$REPO/$f" -O "$destino" 2>/dev/null; then
         if [ -s "$destino" ]; then
             log "  ✅ $f"
         else
@@ -63,13 +63,12 @@ if [ "$FALHAS" -gt 0 ]; then
 fi
 
 # =====================================================================
-# 2. Copia os que mudaram (mas não decide nada)
+# 2. SEMPRE compara e copia se diferente
 # =====================================================================
 log ""
 log "==> Comparando com os locais..."
 
-PRECISA_ATUALIZAR=false
-MUDARAM=()
+MUDARAM=0
 
 for f in "${ARQUIVOS[@]}"; do
     if [ ! -f "/tmp/$f" ]; then
@@ -78,25 +77,23 @@ for f in "${ARQUIVOS[@]}"; do
 
     local_file="/usr/local/sbin/$f"
 
-    if [ ! -f "$local_file" ] || ! cmp -s "$local_file" "/tmp/$f"; then
-        log "  🔄 $f"
-        PRECISA_ATUALIZAR=true
-        MUDARAM+=("$f")
+    if [ ! -f "$local_file" ]; then
+        log "  ➕ NOVO: $f"
+        cp "/tmp/$f" "/usr/local/sbin/$f"
+        chmod 755 "/usr/local/sbin/$f"
+        MUDARAM=$((MUDARAM + 1))
+    elif ! cmp -s "$local_file" "/tmp/$f"; then
+        log "  🔄 MUDOU: $f"
+        cp "/tmp/$f" "/usr/local/sbin/$f"
+        chmod 755 "/usr/local/sbin/$f"
+        MUDARAM=$((MUDARAM + 1))
+    else
+        log "  ✅ igual: $f"
     fi
 done
 
-if [ "$PRECISA_ATUALIZAR" = true ]; then
-    log ""
-    log "==> Atualizando ${#MUDARAM[@]} arquivo(s)..."
-
-    for f in "${ARQUIVOS[@]}"; do
-        if [ -f "/tmp/$f" ]; then
-            cp "/tmp/$f" "/usr/local/sbin/$f"
-            chmod 755 "/usr/local/sbin/$f"
-        fi
-    done
-    log "  ✅ Copiados"
-fi
+log ""
+log "  $MUDARAM arquivo(s) atualizado(s)"
 
 # =====================================================================
 # 3. PostLogin
@@ -105,18 +102,14 @@ if [ -f /usr/local/sbin/lab-postlogin-default.sh ]; then
     mkdir -p /etc/gdm3/PostLogin
     cp /usr/local/sbin/lab-postlogin-default.sh /etc/gdm3/PostLogin/Default
     chmod a+x /etc/gdm3/PostLogin/Default
+    log "  ✅ PostLogin atualizado"
 fi
 
 # =====================================================================
 # 4. ⭐ SEMPRE roda o lab-programs.sh
 # =====================================================================
-#  O lab-programs.sh tem selos. Ele só instala o que falta.
-#  Se um programa falhou no boot anterior, o selo não existe,
-#  então ele tenta de novo AGORA.
-
 log ""
-log "==> Rodando lab-programs.sh (sempre — selos decidem o que instalar)"
-log "    Isso garante que programas que falharam sejam retentados."
+log "==> Rodando lab-programs.sh (sempre — selos decidem)"
 
 if [ -x /usr/local/sbin/lab-programs.sh ]; then
     /usr/local/sbin/lab-programs.sh >> "$LOG" 2>&1
@@ -126,7 +119,7 @@ else
 fi
 
 # =====================================================================
-# 5. Roda os outros scripts (só os de configuração)
+# 5. Roda os outros scripts
 # =====================================================================
 log ""
 log "==> Executando scripts de configuração..."
@@ -138,6 +131,7 @@ for s in lab-profile-config lab-aluno-config \
     if [ -x "/usr/local/sbin/$s.sh" ]; then
         log "▶️  $s.sh"
         "/usr/local/sbin/$s.sh" >> "$LOG" 2>&1
+        log "  exit=$?"
     fi
 done
 
@@ -145,6 +139,9 @@ done
 # 6. LabSecurity Agent
 # =====================================================================
 if [ -f /usr/local/sbin/labsecurity-agent.sh ]; then
+    log ""
+    log "==> Configurando LabSecurity Agent..."
+
     cat > /etc/systemd/system/labsecurity-agent.service << 'EOF'
 [Unit]
 Description=LabSecurity Monitoring Agent
