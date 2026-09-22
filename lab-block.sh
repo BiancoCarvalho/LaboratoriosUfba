@@ -4,10 +4,21 @@
 #  v10.0.0
 #
 #  Bloqueia TUDO no Firefox/Chrome, exceto os dominios passados.
-#  v10.0.0: mata navegadores com pkill -f (pega processos filhos)
+#  Se nenhum argumento, usa a lista padrao (jude.dcc.ufba.br).
+#
+#  Uso:
+#    sudo /usr/local/sbin/lab-block.sh
+#    sudo /usr/local/sbin/lab-block.sh "jude.dcc.ufba.br,google.com"
+#
+#  v10.0.0:
+#    - Usa 'pkill -f' para matar processos filhos
+#    - Usa 'pkill -u' para matar por usuario
+#    - Para o snap do Firefox
+#    - Verifica se sobrou algum navegador
 # =====================================================================
 
 LOG="/var/log/lab.log"
+
 LIBERADOS_ARG="$1"
 
 if [ -z "$LIBERADOS_ARG" ]; then
@@ -18,7 +29,9 @@ echo "[$(date '+%F %T')] host=$(hostname) BLOCK (liberados: $LIBERADOS_ARG)" >> 
 
 IFS=',' read -ra LISTA <<< "$LIBERADOS_ARG"
 
+# ---------------------------------------------------------------------
 # Monta JSON de excecoes do Firefox
+# ---------------------------------------------------------------------
 EXCECOES=""
 for s in "${LISTA[@]}"; do
     s=$(echo "$s" | xargs)
@@ -72,21 +85,26 @@ FIREFOX_POLICIES=$(cat <<EOF
 EOF
 )
 
-# Firefox Snap
+# ---------------------------------------------------------------------
+# Aplica politicas do Firefox (Snap e .deb)
+# ---------------------------------------------------------------------
 if [ -d /snap/firefox ] || snap list firefox &>/dev/null; then
     mkdir -p /var/snap/firefox/common/policies
     echo "$FIREFOX_POLICIES" > /var/snap/firefox/common/policies/policies.json
     chmod 644 /var/snap/firefox/common/policies/policies.json
+    echo "[$(date '+%F %T')] Politicas Firefox Snap aplicadas" >> "$LOG"
 fi
 
-# Firefox .deb
 if [ -f /usr/lib/firefox/firefox ] || [ -f /usr/lib/firefox/firefox.sh ]; then
     mkdir -p /etc/firefox/policies
     echo "$FIREFOX_POLICIES" > /etc/firefox/policies/policies.json
     chmod 644 /etc/firefox/policies/policies.json
+    echo "[$(date '+%F %T')] Politicas Firefox .deb aplicadas" >> "$LOG"
 fi
 
-# Chrome / Chromium
+# ---------------------------------------------------------------------
+# Monta allowlist do Chrome
+# ---------------------------------------------------------------------
 ALLOWLIST=""
 for s in "${LISTA[@]}"; do
     s=$(echo "$s" | xargs)
@@ -130,16 +148,21 @@ CHROME_POLICIES=$(cat <<EOF
 EOF
 )
 
+# ---------------------------------------------------------------------
+# Aplica politicas do Chrome / Chromium
+# ---------------------------------------------------------------------
 if [ -d /opt/google/chrome ] || command -v google-chrome &>/dev/null; then
     mkdir -p /etc/opt/chrome/policies/managed
     echo "$CHROME_POLICIES" > /etc/opt/chrome/policies/managed/policies.json
     chmod 644 /etc/opt/chrome/policies/managed/policies.json
+    echo "[$(date '+%F %T')] Politicas Chrome aplicadas" >> "$LOG"
 fi
 
 if [ -d /usr/lib/chromium ] || command -v chromium &>/dev/null; then
     mkdir -p /etc/opt/chromium/policies/managed
     echo "$CHROME_POLICIES" > /etc/opt/chromium/policies/managed/policies.json
     chmod 644 /etc/opt/chromium/policies/managed/policies.json
+    echo "[$(date '+%F %T')] Politicas Chromium aplicadas" >> "$LOG"
 fi
 
 # =====================================================================
@@ -149,43 +172,55 @@ echo "==> Fechando navegadores..."
 
 NAVEGADORES="firefox firefox-esr chrome google-chrome chromium chromium-browser"
 
-# 1. TERM (educado)
+# ---------------------------------------------------------------------
+# 1. TERM (educado) - TODOS os usuarios humanos
+# ---------------------------------------------------------------------
 for u in $(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd); do
     for nav in $NAVEGADORES; do
         pkill -TERM -u "$u" -f "$nav" 2>/dev/null || true
     done
 done
 
+# TERM como root (caso algum ficou)
 for nav in $NAVEGADORES; do
     pkill -TERM -f "$nav" 2>/dev/null || true
 done
 
 sleep 3
 
-# 2. KILL (forca)
+# ---------------------------------------------------------------------
+# 2. KILL (forca) - TODOS os usuarios humanos
+# ---------------------------------------------------------------------
 for u in $(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd); do
     for nav in $NAVEGADORES; do
         pkill -KILL -u "$u" -f "$nav" 2>/dev/null || true
     done
 done
 
+# KILL como root
 for nav in $NAVEGADORES; do
     pkill -KILL -f "$nav" 2>/dev/null || true
 done
 
+# ---------------------------------------------------------------------
 # 3. Snap do Firefox
+# ---------------------------------------------------------------------
 if snap list firefox &>/dev/null; then
     snap stop firefox 2>/dev/null || true
 fi
 
 sleep 1
 
-# 4. Verifica
+# ---------------------------------------------------------------------
+# 4. Verifica se sobrou algum
+# ---------------------------------------------------------------------
 if pgrep -f "firefox|chrome|chromium" &>/dev/null; then
     echo "[AVISO] Ainda tem navegadores rodando:"
     pgrep -af "firefox|chrome|chromium"
+    echo "[$(date '+%F %T')] [AVISO] Navegadores ainda rodando" >> "$LOG"
 else
     echo "[OK] Navegadores fechados"
+    echo "[$(date '+%F %T')] Todos os navegadores fechados" >> "$LOG"
 fi
 
 echo "[$(date '+%F %T')] BLOCK concluido" >> "$LOG"
