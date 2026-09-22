@@ -19,6 +19,15 @@ export DEBIAN_FRONTEND=noninteractive
 # BLOQUEAR MODULO algif_aead (Copy Fail CVE-2026-31431)
 # ==============================
 
+instalar_ssh() {
+    apt-get update -y || return 1
+    apt-get install -y openssh-server || return 1
+    systemctl enable ssh 2>/dev/null
+    systemctl start ssh  2>/dev/null
+    systemctl is-active --quiet ssh
+}
+
+
 # Funcao para verificar instalacao
 check_install() {
     if command -v $1 &>/dev/null; then
