@@ -1,10 +1,10 @@
 #!/bin/bash
 # =====================================================================
 #  lab-startup.sh
-#  v8.0.0
+#  v9.0.0
 #
-#  Baixa os scripts do GitHub, compara com os locais, e executa
-#  apenas o que mudou. Sem depender de done.txt.
+#  SEMPRE roda o lab-programs.sh (que tem selos).
+#  O lab-programs.sh decide o que precisa ser instalado.
 # =====================================================================
 
 set +e
@@ -16,12 +16,9 @@ mkdir -p /var/log
 log() { echo "[$(date '+%F %T')] $1" | tee -a "$LOG"; }
 
 log "========================================="
-log " lab-startup.sh v8.0.0"
+log " lab-startup.sh v9.0.0"
 log "========================================="
 
-# =====================================================================
-# Lista de arquivos (removi o lab-aluno-ssh-config.sh que não existe)
-# =====================================================================
 ARQUIVOS=(
     lab-profile-config.sh
     lab-aluno-config.sh
@@ -38,7 +35,7 @@ ARQUIVOS=(
 )
 
 # =====================================================================
-# 1. Baixa cada arquivo (com validação)
+# 1. Baixa os scripts
 # =====================================================================
 log ""
 log "==> Baixando scripts do repositório..."
@@ -61,18 +58,12 @@ for f in "${ARQUIVOS[@]}"; do
     fi
 done
 
-# labadmin.pub (opcional)
-rm -f /tmp/labadmin.pub
-if wget -q "$REPO/labadmin.pub" -O /tmp/labadmin.pub 2>/dev/null; then
-    log "  ✅ labadmin.pub"
-fi
-
 if [ "$FALHAS" -gt 0 ]; then
     log "⚠️  $FALHAS arquivo(s) falharam no download"
 fi
 
 # =====================================================================
-# 2. Compara com os locais (sempre, sem depender de done.txt)
+# 2. Copia os que mudaram (mas não decide nada)
 # =====================================================================
 log ""
 log "==> Comparando com os locais..."
@@ -87,72 +78,66 @@ for f in "${ARQUIVOS[@]}"; do
 
     local_file="/usr/local/sbin/$f"
 
-    if [ ! -f "$local_file" ]; then
-        log "  ➕ NOVO: $f"
+    if [ ! -f "$local_file" ] || ! cmp -s "$local_file" "/tmp/$f"; then
+        log "  🔄 $f"
         PRECISA_ATUALIZAR=true
         MUDARAM+=("$f")
-    elif ! cmp -s "$local_file" "/tmp/$f"; then
-        log "  🔄 MUDOU: $f"
-        PRECISA_ATUALIZAR=true
-        MUDARAM+=("$f")
-    else
-        log "  ✅ igual: $f"
     fi
 done
 
-if [ "$PRECISA_ATUALIZAR" = false ]; then
+if [ "$PRECISA_ATUALIZAR" = true ]; then
     log ""
-    log "✅ Nada mudou — pulando execução"
-    exit 0
+    log "==> Atualizando ${#MUDARAM[@]} arquivo(s)..."
+
+    for f in "${ARQUIVOS[@]}"; do
+        if [ -f "/tmp/$f" ]; then
+            cp "/tmp/$f" "/usr/local/sbin/$f"
+            chmod 755 "/usr/local/sbin/$f"
+        fi
+    done
+    log "  ✅ Copiados"
 fi
 
 # =====================================================================
-# 3. Copia
-# =====================================================================
-log ""
-log "==> Atualizando ${#MUDARAM[@]} arquivo(s)..."
-
-for f in "${ARQUIVOS[@]}"; do
-    if [ -f "/tmp/$f" ]; then
-        cp "/tmp/$f" "/usr/local/sbin/$f"
-        chmod 755 "/usr/local/sbin/$f"
-    fi
-done
-
-# labadmin.pub
-if [ -f /tmp/labadmin.pub ]; then
-    cp /tmp/labadmin.pub /usr/local/sbin/labadmin.pub
-    chmod 644 /usr/local/sbin/labadmin.pub
-fi
-
-log "  ✅ Copiados"
-
-# =====================================================================
-# 4. PostLogin
+# 3. PostLogin
 # =====================================================================
 if [ -f /usr/local/sbin/lab-postlogin-default.sh ]; then
     mkdir -p /etc/gdm3/PostLogin
     cp /usr/local/sbin/lab-postlogin-default.sh /etc/gdm3/PostLogin/Default
     chmod a+x /etc/gdm3/PostLogin/Default
-    log "  ✅ PostLogin atualizado"
 fi
 
 # =====================================================================
-# 5. Executa os scripts
+# 4. ⭐ SEMPRE roda o lab-programs.sh
+# =====================================================================
+#  O lab-programs.sh tem selos. Ele só instala o que falta.
+#  Se um programa falhou no boot anterior, o selo não existe,
+#  então ele tenta de novo AGORA.
+
+log ""
+log "==> Rodando lab-programs.sh (sempre — selos decidem o que instalar)"
+log "    Isso garante que programas que falharam sejam retentados."
+
+if [ -x /usr/local/sbin/lab-programs.sh ]; then
+    /usr/local/sbin/lab-programs.sh >> "$LOG" 2>&1
+    log "  lab-programs.sh exit=$?"
+else
+    log "  ⚠️ lab-programs.sh não existe"
+fi
+
+# =====================================================================
+# 5. Roda os outros scripts (só os de configuração)
 # =====================================================================
 log ""
 log "==> Executando scripts de configuração..."
 
-for s in lab-profile-config lab-aluno-config lab-programs \
+for s in lab-profile-config lab-aluno-config \
          lab-eula-programs lab-program-config lab-inventory \
          lab-admin-profile-config; do
 
     if [ -x "/usr/local/sbin/$s.sh" ]; then
-        log "▶️  Executando $s.sh"
+        log "▶️  $s.sh"
         "/usr/local/sbin/$s.sh" >> "$LOG" 2>&1
-        log "  exit=$?"
-    else
-        log "⚠️  $s.sh não existe — pulando"
     fi
 done
 
@@ -160,9 +145,6 @@ done
 # 6. LabSecurity Agent
 # =====================================================================
 if [ -f /usr/local/sbin/labsecurity-agent.sh ]; then
-    log ""
-    log "==> Configurando LabSecurity Agent..."
-
     cat > /etc/systemd/system/labsecurity-agent.service << 'EOF'
 [Unit]
 Description=LabSecurity Monitoring Agent
@@ -182,12 +164,6 @@ EOF
     systemctl daemon-reload
     systemctl enable labsecurity-agent.service 2>/dev/null
     systemctl restart labsecurity-agent.service 2>/dev/null
-
-    if systemctl is-active --quiet labsecurity-agent.service; then
-        log "  ✅ LabSecurity Agent rodando"
-    else
-        log "  ⚠️ LabSecurity Agent falhou"
-    fi
 fi
 
 log ""
