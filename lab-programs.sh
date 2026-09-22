@@ -251,12 +251,50 @@ sudo -E apt-get update -y
 sudo -E apt-get install -y code
 check_install code
 
-# Instalar OBS Studio
+# =====================================================================
+# OBS Studio + v4l2loopback (CORRIGIDO para kernel 6.8)
+# =====================================================================
 echo "Instalando OBS Studio..."
+
 sudo add-apt-repository -y ppa:obsproject/obs-studio
 sudo -E apt-get update -y
-sudo -E apt-get install -y obs-studio v4l2loopback-dkms
-check_install obs
+sudo -E apt-get install -y obs-studio
+
+echo "Instalando v4l2loopback (compilando versão corrigida)..."
+
+# 1. Remove a versão quebrada do apt
+sudo apt-get purge -y v4l2loopback-dkms v4l2loopback-utils 2>/dev/null || true
+sudo rm -f /var/crash/v4l2loopback-dkms.*.crash
+
+# 2. Instala dependências de compilação
+sudo -E apt-get install -y git dkms build-essential linux-headers-$(uname -r)
+
+# 3. Baixa a versão corrigida (0.15.0+)
+rm -rf /tmp/v4l2loopback
+git clone https://github.com/umlaeute/v4l2loopback.git /tmp/v4l2loopback
+cd /tmp/v4l2loopback
+
+# 4. Compila e instala via DKMS
+sudo mkdir -p /usr/src/v4l2loopback-0.15.0
+sudo cp -r * /usr/src/v4l2loopback-0.15.0/
+cd /usr/src/v4l2loopback-0.15.0
+sudo dkms add -m v4l2loopback -v 0.15.0
+sudo dkms build -m v4l2loopback -v 0.15.0
+sudo dkms install -m v4l2loopback -v 0.15.0
+
+# 5. Bloqueia o apt de tentar reinstalar a versão quebrada
+sudo apt-mark hold v4l2loopback-dkms
+
+# 6. Carrega o módulo
+sudo modprobe v4l2loopback exclusive_caps=1
+
+# 7. Verifica
+if lsmod | grep -q v4l2loopback; then
+    echo "[SUCESSO] v4l2loopback instalado"
+else
+    echo "[ERRO] v4l2loopback nao carregou"
+fi
+
 
 # Instalar pacotes essenciais (SEM swi-prolog)
 echo "Instalando pacotes essenciais..."
