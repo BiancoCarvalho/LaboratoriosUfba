@@ -1,12 +1,17 @@
 #!/bin/bash
 # =====================================================================
 #  lab-block.sh
-#  v10.0.0
+#  v11.0.0
 #
 #  Modos:
 #    --sites-only         Bloqueia sites (exceto liberados). Programas livres.
 #    --programs-only      Bloqueia todos os programas, exceto navegadores. Sites livres.
 #    --sites-and-programs Bloqueia sites (exceto liberados) E programas (exceto navegadores).
+#
+#  Mudança da v10 → v11:
+#    - Bloqueio de programas agora usa APPARMOR (kernel-level)
+#      em vez de chmod, que era burlável em /snap, /opt, /usr/lib.
+#    - Mantém toda a estrutura da v10 (sites via policies Firefox/Chrome).
 #
 #  Uso:
 #    sudo /usr/local/sbin/lab-block.sh --sites-only
@@ -194,170 +199,111 @@ matar_navegadores() {
 }
 
 # =====================================================================
-#  BLOQUEIO DE PROGRAMAS
+#  BLOQUEIO DE PROGRAMAS — APPARMOR
 #
-#  Estratégia: grupo "lab-browsers" + chmod 0750 nos navegadores.
-#  Todos os outros binários de /usr/bin ficam 0700 (root-only).
-#  Usuários humanos NÃO entram em root, então não conseguem executar.
-#  Navegadores pertencem ao grupo lab-browsers (usuários entram nele).
+#  Estratégia:
+#    1) Grupo "labusers" agrupa todos os alunos.
+#    2) Perfil AppArmor /etc/apparmor.d/lab-restrict define que
+#       SOMENTE os navegadores listados podem ser executados.
+#    3) pam_apparmor faz o login do aluno já cair dentro do perfil.
 #
-#  ⚠️  Os binários essenciais ficam numa whitelist para não travar SSH/bash.
+#  Vantagens vs chmod:
+#    - Bloqueia em /snap, /opt, /usr/lib, /home, AppImage
+#    - Kernel-level: aluno sem sudo NÃO consegue burlar
+#    - Não mexe em permissões de arquivo
+#
+#  Requisitos (instalados pelo lab-startup.sh):
+#    - apparmor, apparmor-utils, pam_apparmor
+#    - /etc/apparmor.d/lab-restrict (perfil base)
+#    - /etc/apparmor.d/pam_apparmor (mapa grupo → perfil)
+#    - linha "session required pam_apparmor.so" em /etc/pam.d/common-session
 # =====================================================================
 
 APLICAR_PROGRAMAS() {
-  echo "[programs] bloqueando todos os programas exceto: $BROWSERS"
+  echo "[programs] aplicando AppArmor (lab-restrict)"
 
-  # 1) Grupo
-  getent group lab-browsers >/dev/null || groupadd lab-browsers
+  # 0) Sanidade — AppArmor instalado?
+  if ! command -v apparmor_parser &>/dev/null; then
+    echo "[programs][ERRO] AppArmor não está instalado. Rode lab-startup.sh primeiro." >&2
+    return 1
+  fi
 
-  # 2) Adiciona usuários humanos ao grupo
+  # 1) Grupo dos alunos
+  getent group labusers >/dev/null || groupadd labusers
+
   for u in $(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd); do
-    usermod -aG lab-browsers "$u" 2>/dev/null || true
+    usermod -aG labusers "$u" 2>/dev/null || true
   done
 
-  # 3) Prepara pasta de backup da whitelist essencial
-  WHITELIST_DIR="/etc/lab"
-  WHITELIST_FILE="$WHITELIST_DIR/essential-bins.txt"
-  mkdir -p "$WHITELIST_DIR"
-
-  # Gera whitelist essencial na primeira execução
-  if [ ! -f "$WHITELIST_FILE" ]; then
-    cat > "$WHITELIST_FILE" <<'EOF'
-bash
-sh
-dash
-ls
-cat
-echo
-sudo
-ssh
-sshd
-login
-su
-passwd
-mount
-umount
-systemctl
-journalctl
-ip
-ifconfig
-ping
-grep
-awk
-sed
-tar
-gzip
-vi
-vim
-nano
-nohup
-env
-printenv
-which
-whereis
-whoami
-id
-groups
-ps
-top
-kill
-killall
-sleep
-date
-hostname
-uptime
-chmod
-chown
-apt
-dpkg
-snap
-EOF
+  # 2) Garante que existe o perfil base
+  BASE_PROFILE="/etc/apparmor.d/lab-restrict"
+  if [ ! -f "$BASE_PROFILE" ]; then
+    echo "[programs][ERRO] $BASE_PROFILE não existe. Rode lab-startup.sh primeiro." >&2
+    return 1
   fi
 
-  # 4) Marca como "protegido" (root-only) todo binário de /usr/bin
-  #    que NÃO esteja na whitelist essencial nem seja navegador.
-  PROTECTED_FLAG="/etc/lab/.programs-locked"
-  if [ ! -f "$PROTECTED_FLAG" ]; then
-    # salva estado atual para restore
-    find /usr/bin -maxdepth 1 -type f -exec stat -c '%n %a' {} \; \
-      > /etc/lab/orig-perms.txt 2>/dev/null || true
+  # 3) Gera o perfil "ativo" reescrevendo o bloco de navegadores
+  ATIVO="/etc/apparmor.d/lab-restrict.ativo"
 
-    touch "$PROTECTED_FLAG"
-  fi
-
-  # IFS com vírgula para browsers
   IFS=',' read -ra BRS <<< "$BROWSERS"
-  declare -A BROWSER_SET=()
+  REGRAS_BROWSER=""
   for b in "${BRS[@]}"; do
     b="$(echo "$b" | xargs)"
     [ -z "$b" ] && continue
-    BROWSER_SET["$b"]=1
+    REGRAS_BROWSER+="  /usr/bin/$b        ixr,\n"
+    REGRAS_BROWSER+="  /usr/local/bin/$b  ixr,\n"
+    REGRAS_BROWSER+="  /snap/bin/$b       ixr,\n"
   done
 
-  # Aplica permissões
-  while IFS= read -r binpath; do
-    name="$(basename "$binpath")"
+  # Reescreve o perfil copiando tudo, mas substituindo o bloco de
+  # navegadores entre "# Navegadores permitidos" e "# Bloqueia execução"
+  awk -v regras="$REGRAS_BROWSER" '
+    /# Navegadores permitidos/ {
+      print
+      printf "%b", regras
+      skip = 1
+      next
+    }
+    /# Bloqueia execução/ {
+      skip = 0
+    }
+    skip { next }
+    { print }
+  ' "$BASE_PROFILE" > "$ATIVO"
 
-    # pula whitelist essencial
-    if grep -Fxq "$name" "$WHITELIST_FILE"; then
-      continue
-    fi
+  chmod 644 "$ATIVO"
 
-    # navegador permitido → 0750 root:lab-browsers
-    if [[ -n "${BROWSER_SET[$name]:-}" ]]; then
-      chmod 0750 "$binpath" 2>/dev/null || true
-      chown root:lab-browsers "$binpath" 2>/dev/null || true
-      continue
-    fi
+  # 4) Carrega (ou recarrega) no kernel
+  apparmor_parser -r "$ATIVO"
 
-    # resto → 0700 root:root
-    chmod 0700 "$binpath" 2>/dev/null || true
-    chown root:root "$binpath" 2>/dev/null || true
+  # 5) Coloca alunos no grupo labusers
+  for u in $(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd); do
+    usermod -aG labusers "$u" 2>/dev/null || true
+  done
 
-  done < <(find /usr/bin -maxdepth 1 -type f)
-
-  # Também trata /usr/local/bin (exceto scripts do lab)
-  while IFS= read -r binpath; do
-    name="$(basename "$binpath")"
-    [[ "$name" == lab-* ]] && continue
-    chmod 0700 "$binpath" 2>/dev/null || true
-    chown root:root "$binpath" 2>/dev/null || true
-  done < <(find /usr/local/bin -maxdepth 1 -type f 2>/dev/null || true)
-
-  echo "[programs] bloqueio aplicado."
+  echo "[programs] AppArmor ativo. Navegadores permitidos: $BROWSERS"
 }
 
 REVERTER_PROGRAMAS() {
-  echo "[programs] revertendo bloqueio de programas"
+  echo "[programs] removendo AppArmor (lab-restrict)"
 
-  PROTECTED_FLAG="/etc/lab/.programs-locked"
+  ATIVO="/etc/apparmor.d/lab-restrict.ativo"
 
-  if [ -f /etc/lab/orig-perms.txt ]; then
-    while read -r path mode; do
-      [ -e "$path" ] || continue
-      chmod "$mode" "$path" 2>/dev/null || true
-      chown root:root "$path" 2>/dev/null || true
-    done < /etc/lab/orig-perms.txt
-
-    rm -f /etc/lab/orig-perms.txt
+  # 1) Remove o perfil ativo do kernel
+  if [ -f "$ATIVO" ]; then
+    apparmor_parser -R "$ATIVO" 2>/dev/null || true
+    rm -f "$ATIVO"
   fi
 
-  # Garante que binários de navegadores voltem a 755
-  IFS=',' read -ra BRS <<< "$BROWSERS"
-  for b in "${BRS[@]}"; do
-    b="$(echo "$b" | xargs)"
-    for p in /usr/bin/"$b" /usr/local/bin/"$b" /snap/bin/"$b"; do
-      [ -e "$p" ] && chmod 0755 "$p" 2>/dev/null || true
-    done
-  done
+  # 2) Garante que o perfil base também não está carregado
+  apparmor_parser -R /etc/apparmor.d/lab-restrict 2>/dev/null || true
 
-  # Remove usuários do grupo
+  # 3) Remove alunos do grupo
   for u in $(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd); do
-    gpasswd -d "$u" lab-browsers 2>/dev/null || true
+    gpasswd -d "$u" labusers 2>/dev/null || true
   done
 
-  rm -f "$PROTECTED_FLAG"
-  echo "[programs] revertido."
+  echo "[programs] AppArmor removido."
 }
 
 # =====================================================================
