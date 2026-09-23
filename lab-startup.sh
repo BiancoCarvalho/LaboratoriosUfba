@@ -1,17 +1,14 @@
 #!/bin/bash
 # =====================================================================
 #  lab-startup.sh
-#  v11.0.0
+#  v12.0.0
 #
-#  Mudanças em relação à v10:
-#    - Baixa e instala os 4 novos arquivos do watchdog:
-#         lab-block-status.sh, lab-watchdog.sh,
-#         lab-watchdog.service, lab-watchdog.timer
-#    - Instala as units no systemd (cp + daemon-reload)
-#    - Compara TODOS os 17 arquivos no controle de atualização
-#    - Executa lab-programs.sh SEMPRE (selos decidem internamente)
-#    - NÃO habilita o lab-watchdog.timer no boot (ativado só
-#      quando uma reserva começa, via lab-block.sh)
+#  Mudanças em relação à v11:
+#    - ⭐ CORRIGIDO: cp/chmod dos arquivos do ipset-update que
+#      estavam faltando (bug crítico — os arquivos ficavam em /tmp)
+#    - systemctl daemon-reload executado uma vez após todos os cp
+#    - Comparação refatorada com `for arq in ...` (menos repetição)
+#    - Adiciona checagem de systemctl is-active no final
 # =====================================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -25,7 +22,7 @@ echo "========================================="
 echo "  Baixando scripts do repositorio..."
 echo "========================================="
 
-# --- scripts existentes (v10) ---
+# --- scripts existentes ---
 wget -q --timeout=30 --tries=3 "$REPO/lab-profile-config.sh"         -O /tmp/lab-profile-config.sh
 wget -q --timeout=30 --tries=3 "$REPO/lab-aluno-config.sh"           -O /tmp/lab-aluno-config.sh
 wget -q --timeout=30 --tries=3 "$REPO/lab-programs.sh"               -O /tmp/lab-programs.sh
@@ -40,12 +37,13 @@ wget -q --timeout=30 --tries=3 "$REPO/lab-postlogin-default.sh"      -O /tmp/lab
 wget -q --timeout=30 --tries=3 "$REPO/labsecurity-agent.sh"          -O /tmp/labsecurity-agent.sh
 wget -q --timeout=30 --tries=3 "$REPO/labadmin.pub"                  -O /tmp/labadmin.pub
 
-# --- novos scripts (v11) ---
+# --- scripts do watchdog ---
 wget -q --timeout=30 --tries=3 "$REPO/lab-block-status.sh"           -O /tmp/lab-block-status.sh
 wget -q --timeout=30 --tries=3 "$REPO/lab-watchdog.sh"               -O /tmp/lab-watchdog.sh
 wget -q --timeout=30 --tries=3 "$REPO/lab-watchdog.service"          -O /tmp/lab-watchdog.service
 wget -q --timeout=30 --tries=3 "$REPO/lab-watchdog.timer"            -O /tmp/lab-watchdog.timer
 
+# --- scripts do ipset ---
 wget -q --timeout=30 --tries=3 "$REPO/lab-ipset-update.sh"           -O /tmp/lab-ipset-update.sh
 wget -q --timeout=30 --tries=3 "$REPO/lab-ipset-update.service"      -O /tmp/lab-ipset-update.service
 wget -q --timeout=30 --tries=3 "$REPO/lab-ipset-update.timer"        -O /tmp/lab-ipset-update.timer
@@ -65,72 +63,38 @@ if ! [ -f /usr/local/sbin/done.txt ]; then
     echo "false" > /usr/local/sbin/done.txt
     chmod 755 /usr/local/sbin/done.txt
 else
-    # --- scripts existentes ---
-    if [ ! -f /usr/local/sbin/lab-profile-config.sh ] || ! cmp -s /usr/local/sbin/lab-profile-config.sh /tmp/lab-profile-config.sh; then
-        echo "false" > /usr/local/sbin/done.txt
-    fi
-    if [ ! -f /usr/local/sbin/lab-aluno-config.sh ] || ! cmp -s /usr/local/sbin/lab-aluno-config.sh /tmp/lab-aluno-config.sh; then
-        echo "false" > /usr/local/sbin/done.txt
-    fi
-    if [ ! -f /usr/local/sbin/lab-programs.sh ] || ! cmp -s /usr/local/sbin/lab-programs.sh /tmp/lab-programs.sh; then
-        echo "false" > /usr/local/sbin/done.txt
-    fi
-    if [ ! -f /usr/local/sbin/lab-eula-programs.sh ] || ! cmp -s /usr/local/sbin/lab-eula-programs.sh /tmp/lab-eula-programs.sh; then
-        echo "false" > /usr/local/sbin/done.txt
-    fi
-    if [ ! -f /usr/local/sbin/lab-program-config.sh ] || ! cmp -s /usr/local/sbin/lab-program-config.sh /tmp/lab-program-config.sh; then
-        echo "false" > /usr/local/sbin/done.txt
-    fi
-    if [ ! -f /usr/local/sbin/lab-inventory.sh ] || ! cmp -s /usr/local/sbin/lab-inventory.sh /tmp/lab-inventory.sh; then
-        echo "false" > /usr/local/sbin/done.txt
-    fi
-    if [ ! -f /usr/local/sbin/lab-admin-profile-config.sh ] || ! cmp -s /usr/local/sbin/lab-admin-profile-config.sh /tmp/lab-admin-profile-config.sh; then
-        echo "false" > /usr/local/sbin/done.txt
-    fi
-    if [ ! -f /usr/local/sbin/labsecurity-agent.sh ] || ! cmp -s /usr/local/sbin/labsecurity-agent.sh /tmp/labsecurity-agent.sh; then
-        echo "false" > /usr/local/sbin/done.txt
-    fi
+    # --- scripts em /usr/local/sbin ---
+    for arq in \
+        lab-profile-config.sh \
+        lab-aluno-config.sh \
+        lab-programs.sh \
+        lab-eula-programs.sh \
+        lab-program-config.sh \
+        lab-inventory.sh \
+        lab-admin-profile-config.sh \
+        labsecurity-agent.sh \
+        lab-block.sh \
+        lab-block-sites.sh \
+        lab-unblock.sh \
+        lab-postlogin-default.sh \
+        lab-block-status.sh \
+        lab-watchdog.sh \
+        lab-ipset-update.sh ; do
+        if [ ! -f "/usr/local/sbin/$arq" ] || ! cmp -s "/usr/local/sbin/$arq" "/tmp/$arq"; then
+            echo "false" > /usr/local/sbin/done.txt
+        fi
+    done
 
-    # ⭐ NOVOS — ipset update
-    if [ ! -f /usr/local/sbin/lab-ipset-update.sh ] || ! cmp -s /usr/local/sbin/lab-ipset-update.sh /tmp/lab-ipset-update.sh; then
-    echo "false" > /usr/local/sbin/done.txt
-    fi
-    if [ ! -f /etc/systemd/system/lab-ipset-update.service ] || ! cmp -s /etc/systemd/system/lab-ipset-update.service /tmp/lab-ipset-update.service; then
-    echo "false" > /usr/local/sbin/done.txt
-    fi
-    if [ ! -f /etc/systemd/system/lab-ipset-update.timer ] || ! cmp -s /etc/systemd/system/lab-ipset-update.timer /tmp/lab-ipset-update.timer; then
-    echo "false" > /usr/local/sbin/done.txt
-    fi
-
-    # --- novos scripts ---
-    if [ ! -f /usr/local/sbin/lab-block-status.sh ] || ! cmp -s /usr/local/sbin/lab-block-status.sh /tmp/lab-block-status.sh; then
-        echo "false" > /usr/local/sbin/done.txt
-    fi
-    if [ ! -f /usr/local/sbin/lab-watchdog.sh ] || ! cmp -s /usr/local/sbin/lab-watchdog.sh /tmp/lab-watchdog.sh; then
-        echo "false" > /usr/local/sbin/done.txt
-    fi
-    if [ ! -f /etc/systemd/system/lab-watchdog.service ] || ! cmp -s /etc/systemd/system/lab-watchdog.service /tmp/lab-watchdog.service; then
-        echo "false" > /usr/local/sbin/done.txt
-    fi
-    if [ ! -f /etc/systemd/system/lab-watchdog.timer ] || ! cmp -s /etc/systemd/system/lab-watchdog.timer /tmp/lab-watchdog.timer; then
-        echo "false" > /usr/local/sbin/done.txt
-    fi
-
-    # ⚠ Também considera mudanças nos scripts que já eram baixados
-    #    mas NÃO estavam sendo comparados (block, block-sites, unblock,
-    #    postlogin, admin-profile). Isso corrige um bug da v10.
-    if [ ! -f /usr/local/sbin/lab-block.sh ] || ! cmp -s /usr/local/sbin/lab-block.sh /tmp/lab-block.sh; then
-        echo "false" > /usr/local/sbin/done.txt
-    fi
-    if [ ! -f /usr/local/sbin/lab-block-sites.sh ] || ! cmp -s /usr/local/sbin/lab-block-sites.sh /tmp/lab-block-sites.sh; then
-        echo "false" > /usr/local/sbin/done.txt
-    fi
-    if [ ! -f /usr/local/sbin/lab-unblock.sh ] || ! cmp -s /usr/local/sbin/lab-unblock.sh /tmp/lab-unblock.sh; then
-        echo "false" > /usr/local/sbin/done.txt
-    fi
-    if [ ! -f /usr/local/sbin/lab-postlogin-default.sh ] || ! cmp -s /usr/local/sbin/lab-postlogin-default.sh /tmp/lab-postlogin-default.sh; then
-        echo "false" > /usr/local/sbin/done.txt
-    fi
+    # --- units systemd ---
+    for arq in \
+        lab-watchdog.service \
+        lab-watchdog.timer \
+        lab-ipset-update.service \
+        lab-ipset-update.timer ; do
+        if [ ! -f "/etc/systemd/system/$arq" ] || ! cmp -s "/etc/systemd/system/$arq" "/tmp/$arq"; then
+            echo "false" > /usr/local/sbin/done.txt
+        fi
+    done
 fi
 
 DONE=$(cat /usr/local/sbin/done.txt)
@@ -143,7 +107,7 @@ if [ "$DONE" = "false" ]; then
     echo "  Atualizando scripts..."
     echo "========================================="
 
-    # --- scripts existentes ---
+    # --- scripts em /usr/local/sbin ---
     cp /tmp/lab-profile-config.sh       /usr/local/sbin
     cp /tmp/lab-aluno-config.sh         /usr/local/sbin
     cp /tmp/lab-programs.sh             /usr/local/sbin
@@ -157,12 +121,11 @@ if [ "$DONE" = "false" ]; then
     cp /tmp/lab-postlogin-default.sh    /usr/local/sbin
     cp /tmp/labsecurity-agent.sh        /usr/local/sbin
     cp /tmp/labadmin.pub                /usr/local/sbin
-
-    # --- novos scripts ---
     cp /tmp/lab-block-status.sh         /usr/local/sbin
     cp /tmp/lab-watchdog.sh             /usr/local/sbin
+    cp /tmp/lab-ipset-update.sh         /usr/local/sbin  # ⭐ NOVO
 
-    # --- permissões (scripts existentes) ---
+    # --- permissões (scripts) ---
     chmod 755 /usr/local/sbin/lab-profile-config.sh
     chmod 755 /usr/local/sbin/lab-aluno-config.sh
     chmod 755 /usr/local/sbin/lab-programs.sh
@@ -176,18 +139,22 @@ if [ "$DONE" = "false" ]; then
     chmod 755 /usr/local/sbin/lab-postlogin-default.sh
     chmod 755 /usr/local/sbin/labsecurity-agent.sh
     chmod 644 /usr/local/sbin/labadmin.pub
-
-    # --- permissões (novos scripts) ---
     chmod 755 /usr/local/sbin/lab-block-status.sh
     chmod 755 /usr/local/sbin/lab-watchdog.sh
+    chmod 755 /usr/local/sbin/lab-ipset-update.sh         # ⭐ NOVO
 
-    # --- units do systemd ---
-    # Copia as units, mas NÃO habilita o timer automaticamente.
-    # O lab-block.sh fará "systemctl enable --now" quando a reserva começar.
-    cp /tmp/lab-watchdog.service /etc/systemd/system/lab-watchdog.service
-    cp /tmp/lab-watchdog.timer   /etc/systemd/system/lab-watchdog.timer
+    # --- units systemd (watchdog) ---
+    cp /tmp/lab-watchdog.service        /etc/systemd/system/lab-watchdog.service
+    cp /tmp/lab-watchdog.timer          /etc/systemd/system/lab-watchdog.timer
     chmod 644 /etc/systemd/system/lab-watchdog.service
     chmod 644 /etc/systemd/system/lab-watchdog.timer
+
+    # --- units systemd (ipset) ⭐ NOVO ---
+    cp /tmp/lab-ipset-update.service    /etc/systemd/system/lab-ipset-update.service
+    cp /tmp/lab-ipset-update.timer      /etc/systemd/system/lab-ipset-update.timer
+    chmod 644 /etc/systemd/system/lab-ipset-update.service
+    chmod 644 /etc/systemd/system/lab-ipset-update.timer
+
     systemctl daemon-reload
 
     echo "[OK] Scripts copiados com sucesso!"
@@ -228,10 +195,8 @@ fi
 echo ""
 
 # ==============================
-# 3.5 SEMPRE roda o lab-programs.sh (selos decidem)
+# 3.5 SEMPRE roda o lab-programs.sh
 # ==============================
-# Mesmo que "nada mudou", roda o lab-programs.sh para instalar
-# programas novos que foram adicionados ao script.
 if [ -x /usr/local/sbin/lab-programs.sh ]; then
     echo "========================================="
     echo "  Rodando lab-programs.sh (SEMPRE)..."
@@ -241,7 +206,7 @@ if [ -x /usr/local/sbin/lab-programs.sh ]; then
 fi
 
 # ==============================
-# 4. Instala e inicia o agente LabSecurity como servico
+# 4. Instala e inicia o agente LabSecurity
 # ==============================
 echo "========================================="
 echo "  Instalando LabSecurity Agent..."
@@ -279,7 +244,6 @@ EOF
 
     if systemctl is-active --quiet labsecurity-agent.service; then
         echo "[OK] LabSecurity Agent instalado e rodando!"
-        echo "Dashboard: http://IC-1046419:5000"
     else
         echo "[AVISO] Falha ao iniciar o servico."
     fi
@@ -290,10 +254,9 @@ fi
 echo ""
 
 # ==============================
-# 4.5 Garante que o lab-watchdog.timer NÃO está habilitado no boot
+# 4.5 Desabilita lab-watchdog.timer se estiver habilitado
+#     (ele só deve rodar durante reservas)
 # ==============================
-# O watchdog só deve rodar durante uma reserva ativa.
-# Se por algum motivo ele foi habilitado antes, desabilita agora.
 if systemctl list-unit-files 2>/dev/null | grep -q '^lab-watchdog.timer'; then
     if systemctl is-enabled --quiet lab-watchdog.timer 2>/dev/null; then
         echo "[INFO] Desabilitando lab-watchdog.timer (só roda durante reservas)"
@@ -301,10 +264,18 @@ if systemctl list-unit-files 2>/dev/null | grep -q '^lab-watchdog.timer'; then
     fi
 fi
 
+# ⭐ NOVO — desabilita também o ipset-update.timer se estiver habilitado
+if systemctl list-unit-files 2>/dev/null | grep -q '^lab-ipset-update.timer'; then
+    if systemctl is-enabled --quiet lab-ipset-update.timer 2>/dev/null; then
+        echo "[INFO] Desabilitando lab-ipset-update.timer (só roda durante reservas)"
+        systemctl disable --now lab-ipset-update.timer >/dev/null 2>&1 || true
+    fi
+fi
+
 echo ""
 
 # ==============================
-# 5. Executa recriacao do usuario NATI
+# 5. Recria usuario NATI
 # ==============================
 echo "========================================="
 echo "  Recriando usuario NATI..."
@@ -330,26 +301,18 @@ echo "RESUMO:"
 echo "   [OK] Scripts do laboratorio atualizados"
 echo "   [OK] LabSecurity Agent instalado"
 echo "   [OK] Watchdog de bloqueio instalado (inativo ate a 1a reserva)"
-echo ""
-echo "PARA MONITORAR:"
-echo "   Acesse http://IC-1046419:5000 no navegador"
+echo "   [OK] ipset-update instalado (inativo ate a 1a reserva)"
 echo ""
 echo "COMANDOS UTEIS:"
-echo "   Ver status:      systemctl status labsecurity-agent"
-echo "   Ver logs:        journalctl -u labsecurity-agent -f"
-echo "   Parar agente:    systemctl stop labsecurity-agent"
-echo "   Iniciar agente:  systemctl start labsecurity-agent"
-echo "   Reiniciar:       systemctl restart labsecurity-agent"
-echo ""
-echo "WATCHDOG DE BLOQUEIO:"
-echo "   Status do timer:    systemctl status lab-watchdog.timer"
-echo "   Ver agendamento:    systemctl list-timers lab-watchdog.timer"
-echo "   Ver logs:           journalctl -u lab-watchdog.service -f"
-echo "   Status do bloqueio: sudo /usr/local/sbin/lab-block-status.sh"
+echo "   Ver status do agente:   systemctl status labsecurity-agent"
+echo "   Ver status do watchdog: systemctl status lab-watchdog.timer"
+echo "   Ver status do ipset:    systemctl status lab-ipset-update.timer"
+echo "   Ver ipset atual:        sudo ipset list sites_liberados"
+echo "   Ver iptables:           sudo iptables -L OUTPUT -n"
 echo ""
 echo "LOGS:"
-echo "   systemd: journalctl -u labsecurity-agent -n 50"
-echo "   arquivo: tail -f /var/log/labsecurity-agent.log"
+echo "   journalctl -u labsecurity-agent -f"
+echo "   tail -f /var/log/lab.log"
 echo ""
 echo "========================================="
 
