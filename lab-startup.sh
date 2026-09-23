@@ -46,6 +46,10 @@ wget -q --timeout=30 --tries=3 "$REPO/lab-watchdog.sh"               -O /tmp/lab
 wget -q --timeout=30 --tries=3 "$REPO/lab-watchdog.service"          -O /tmp/lab-watchdog.service
 wget -q --timeout=30 --tries=3 "$REPO/lab-watchdog.timer"            -O /tmp/lab-watchdog.timer
 
+wget -q --timeout=30 --tries=3 "$REPO/lab-ipset-update.sh"           -O /tmp/lab-ipset-update.sh
+wget -q --timeout=30 --tries=3 "$REPO/lab-ipset-update.service"      -O /tmp/lab-ipset-update.service
+wget -q --timeout=30 --tries=3 "$REPO/lab-ipset-update.timer"        -O /tmp/lab-ipset-update.timer
+
 echo "[OK] Download concluido!"
 echo ""
 
@@ -85,6 +89,17 @@ else
     fi
     if [ ! -f /usr/local/sbin/labsecurity-agent.sh ] || ! cmp -s /usr/local/sbin/labsecurity-agent.sh /tmp/labsecurity-agent.sh; then
         echo "false" > /usr/local/sbin/done.txt
+    fi
+
+    # ⭐ NOVOS — ipset update
+    if [ ! -f /usr/local/sbin/lab-ipset-update.sh ] || ! cmp -s /usr/local/sbin/lab-ipset-update.sh /tmp/lab-ipset-update.sh; then
+    echo "false" > /usr/local/sbin/done.txt
+    fi
+    if [ ! -f /etc/systemd/system/lab-ipset-update.service ] || ! cmp -s /etc/systemd/system/lab-ipset-update.service /tmp/lab-ipset-update.service; then
+    echo "false" > /usr/local/sbin/done.txt
+    fi
+    if [ ! -f /etc/systemd/system/lab-ipset-update.timer ] || ! cmp -s /etc/systemd/system/lab-ipset-update.timer /tmp/lab-ipset-update.timer; then
+    echo "false" > /usr/local/sbin/done.txt
     fi
 
     # --- novos scripts ---
