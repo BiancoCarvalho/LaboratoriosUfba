@@ -71,6 +71,17 @@ if ! command -v quarto &>/dev/null; then
 fi
 check_install quarto
 
+
+# =====================================================================
+# ipset — necessário para o lab-block.sh v16+
+# =====================================================================
+if ! command -v ipset >/dev/null 2>&1; then
+    echo "[lab-programs] instalando ipset..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y ipset
+else
+    echo "[lab-programs] ipset já instalado"
+fi
+
 # =====================================================================
 # 3) Atualizacao do sistema
 # =====================================================================
