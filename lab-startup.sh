@@ -37,17 +37,6 @@ wget -q --timeout=30 --tries=3 "$REPO/lab-postlogin-default.sh"      -O /tmp/lab
 wget -q --timeout=30 --tries=3 "$REPO/labsecurity-agent.sh"          -O /tmp/labsecurity-agent.sh
 wget -q --timeout=30 --tries=3 "$REPO/labadmin.pub"                  -O /tmp/labadmin.pub
 
-# --- scripts do watchdog ---
-wget -q --timeout=30 --tries=3 "$REPO/lab-block-status.sh"           -O /tmp/lab-block-status.sh
-wget -q --timeout=30 --tries=3 "$REPO/lab-watchdog.sh"               -O /tmp/lab-watchdog.sh
-wget -q --timeout=30 --tries=3 "$REPO/lab-watchdog.service"          -O /tmp/lab-watchdog.service
-wget -q --timeout=30 --tries=3 "$REPO/lab-watchdog.timer"            -O /tmp/lab-watchdog.timer
-
-# --- scripts do ipset ---
-wget -q --timeout=30 --tries=3 "$REPO/lab-ipset-update.sh"           -O /tmp/lab-ipset-update.sh
-wget -q --timeout=30 --tries=3 "$REPO/lab-ipset-update.service"      -O /tmp/lab-ipset-update.service
-wget -q --timeout=30 --tries=3 "$REPO/lab-ipset-update.timer"        -O /tmp/lab-ipset-update.timer
-
 echo "[OK] Download concluido!"
 echo ""
 
@@ -78,7 +67,6 @@ else
         lab-unblock.sh \
         lab-postlogin-default.sh \
         lab-block-status.sh \
-        lab-watchdog.sh \
         lab-ipset-update.sh ; do
         if [ ! -f "/usr/local/sbin/$arq" ] || ! cmp -s "/usr/local/sbin/$arq" "/tmp/$arq"; then
             echo "false" > /usr/local/sbin/done.txt
