@@ -1,35 +1,38 @@
 #!/bin/bash
 # =====================================================================
-#  lab-block.sh v11.0.0
+#  lab-block.sh v12.0.0
 #
-#  Mudanças em relação à v10:
-#    - getent com timeout 2s e limite de 5 IPs por domínio
-#    - iptables aplicado em background (não bloqueia resposta)
-#    - pkill em background
-#    - retorna em <2s sempre
-#    - não trava mais com uol.com.br e similares
+#  Mudanças em relação à v11:
+#    - Fecha descritores no início (evita SSH travar esperando EOF)
+#    - Executa tudo em background fechando stdin/stdout/stderr
+#    - Adiciona `exec 1>&- 2>&- 0<&-` no final
 # =====================================================================
 
 set -u
+
+# ⭐ Redireciona descritores IMEDIATAMENTE para evitar que processos
+#    filhos segurem o canal SSH
+exec </dev/null >/dev/null 2>&1
 
 LOG="/var/log/lab.log"
 KIOSK_URL="https://jude.dcc.ufba.br/auth/login"
 
 LIBERADOS_ARG="${1:-jude.dcc.ufba.br,www.dcc.ufba.br}"
 
-echo "[$(date '+%F %T')] BLOCK (liberados: $LIBERADOS_ARG)" >> "$LOG"
+{
+    echo "[$(date '+%F %T')] BLOCK (liberados: $LIBERADOS_ARG)"
+} >> "$LOG"
 
 IFS=',' read -ra LISTA <<< "$LIBERADOS_ARG"
 
 # =====================================================================
-# 1) Firefox policies (rápido)
+# 1) Firefox policies
 # =====================================================================
 EXCECOES=""
 for s in "${LISTA[@]}"; do
     s="$(echo "$s" | xargs)"
     [ -z "$s" ] && continue
 
-    # Firefox não suporta wildcard no host
     case "$s" in
         \**) continue ;;
     esac
@@ -72,7 +75,7 @@ if [ -f /usr/lib/firefox/firefox ]; then
 fi
 
 # =====================================================================
-# 2) Chrome policies (rápido)
+# 2) Chrome policies
 # =====================================================================
 ALLOWLIST=""
 for s in "${LISTA[@]}"; do
@@ -103,28 +106,33 @@ if [ -d /usr/lib/chromium ]; then
 fi
 
 # =====================================================================
-# 3) Mata navegadores em background (não bloqueia resposta)
+# 3) Mata navegadores em background COMPLETO (fecha todos os FD)
 # =====================================================================
 (
+    exec </dev/null >/dev/null 2>&1
+
     USUARIOS=$(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd)
 
     for u in $USUARIOS; do
         for n in firefox firefox-esr chrome google-chrome chromium chromium-browser; do
-            sudo -u "$u" timeout 2 pkill -TERM -x "$n" 2>/dev/null
+            sudo -u "$u" timeout 2 pkill -TERM -x "$n" </dev/null >/dev/null 2>&1
         done
     done
     sleep 2
     for u in $USUARIOS; do
         for n in firefox firefox-esr chrome google-chrome chromium chromium-browser; do
-            sudo -u "$u" timeout 2 pkill -KILL -x "$n" 2>/dev/null
+            sudo -u "$u" timeout 2 pkill -KILL -x "$n" </dev/null >/dev/null 2>&1
         done
     done
 ) &
+disown
 
 # =====================================================================
-# 4) iptables em background com timeout por getent
+# 4) iptables em background COMPLETO
 # =====================================================================
 (
+    exec </dev/null >/dev/null 2>&1
+
     iptables -F OUTPUT 2>/dev/null
     iptables -P OUTPUT ACCEPT 2>/dev/null
     iptables -A OUTPUT -o lo -j ACCEPT
@@ -139,10 +147,8 @@ fi
         s="$(echo "$s" | xargs)"
         [ -z "$s" ] && continue
 
-        # remove wildcard
         host="${s#\*.}"
 
-        # ⭐ timeout de 2s + limite de 5 IPs por domínio
         ips=$(timeout 2 getent ahostsv4 "$host" 2>/dev/null \
               | awk '{print $1}' | sort -u | head -5)
 
@@ -156,20 +162,27 @@ fi
         iptables -A OUTPUT -j DROP
         echo "[$(date '+%F %T')] iptables aplicado — $IP_COUNT IPs liberados" >> "$LOG"
     else
-        echo "[$(date '+%F %T')] [WARN] nenhum IP resolvido — iptables não aplicado" >> "$LOG"
+        echo "[$(date '+%F %T')] [WARN] nenhum IP resolvido" >> "$LOG"
     fi
 
     if command -v netfilter-persistent >/dev/null 2>&1; then
         timeout 10 netfilter-persistent save >/dev/null 2>&1
     fi
 ) &
+disown
 
 # =====================================================================
-# 5) Ativa watchdog (rápido)
+# 5) Watchdog
 # =====================================================================
 if systemctl list-unit-files 2>/dev/null | grep -q '^lab-watchdog.timer'; then
     timeout 3 systemctl enable --now lab-watchdog.timer >/dev/null 2>&1
 fi
 
-echo "[$(date '+%F %T')] BLOCK concluído" >> "$LOG"
+{
+    echo "[$(date '+%F %T')] BLOCK concluído"
+} >> "$LOG"
+
+# ⭐ Fecha TODOS os descritores — garante EOF imediato no SSH
+exec 0<&- 1>&- 2>&-
+
 exit 0
