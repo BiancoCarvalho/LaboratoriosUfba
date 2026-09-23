@@ -44,23 +44,33 @@ FIREFOX_POLICIES=$(cat <<EOF
       "Block": ["<all_urls>"],
       "Exceptions": [$EXCECOES]
     },
+    "BlockAboutAddons": true,
     "BlockAboutConfig": true,
+    "BlockAboutProfiles": true,
+    "BlockAboutSupport": true,
     "DisableDeveloperTools": true,
     "DisableFirefoxAccounts": true,
     "DisableFormHistory": true,
     "DisablePocket": true,
     "DisablePrivateBrowsing": true,
+    "DisableSafeMode": true,
+    "DisableProfileRefresh": true,
+    "DisableProfileImport": true,
     "DontCheckDefaultBrowser": true,
     "OfferToSaveLogins": false,
     "PasswordManagerEnabled": false,
     "OverrideFirstRunPage": "",
     "OverridePostUpdatePage": "",
     "NoDefaultBookmarks": true,
-    "DisableProfileImport": true,
     "DisableSafeBrowsing": true,
+    "InstallAddonsPermission": {
+      "Default": false
+    },
     "Permissions": {
       "Location": { "BlockNewRequests": true },
-      "Notifications": { "BlockNewRequests": true }
+      "Notifications": { "BlockNewRequests": true },
+      "Camera": { "BlockNewRequests": true },
+      "Microphone": { "BlockNewRequests": true }
     }
   }
 }
@@ -99,6 +109,7 @@ CHROME_POLICIES=$(cat <<EOF
   "DeveloperToolsAvailability": 2,
   "IncognitoModeAvailability": 1,
   "BrowserSignin": 0,
+  "BrowserGuestModeEnabled": false,
   "PasswordManagerEnabled": false,
   "AutofillAddressEnabled": false,
   "AutofillCreditCardEnabled": false,
@@ -110,7 +121,14 @@ CHROME_POLICIES=$(cat <<EOF
   "SafeBrowsingProtectionLevel": 0,
   "SyncDisabled": true,
   "BackgroundModeEnabled": false,
-  "TaskManagerEndProcessEnabled": false
+  "TaskManagerEndProcessEnabled": false,
+  "ExtensionInstallBlocklist": ["*"],
+  "ImportBookmarks": false,
+  "ImportHistory": false,
+  "ImportSavedPasswords": false,
+  "ImportSearchEngine": false,
+  "ClearBrowsingDataOnExit": false,
+  "RegisteredProtocolHandlers": []
 }
 EOF
 )
