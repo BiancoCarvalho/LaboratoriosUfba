@@ -1,21 +1,16 @@
 #!/bin/bash
 # =====================================================================
 #  lab-admin-profile-config.sh
-#  v3.1.0
+#  v3.2.0
 #
 #  Cria/configura o usuário administrador 'nati'.
-#  - Cria o usuário se NÃO existir
-#  - Se existir, reconfigura (senha, chave, sudoers) SEM derrubar sessão
-#  - Sem 'sudo' (roda como root via systemd)
-#  - Sempre reaplica chave SSH, sudoers e permissões
-#  - Remove o usuário 'suporte' se existir
 #
-#  CORREÇÕES v3.1.0:
-#    - Sudoers agora usa 'nati' (minúsculo, igual ao usuário)
-#    - Teste de sudoers usa o binário correto
-#    - Validação robusta de cada etapa
-#
-#  Localização: /usr/local/sbin/lab-admin-profile-config.sh
+#  Mudanças em relação à v3.1.0:
+#    - ⭐ Adiciona Defaults:nati !requiretty (para SSH não-interativo)
+#    - ⭐ Adiciona TODOS os comandos do lab ao sudoers do nati
+#    - ⭐ Adiciona lab-startup.sh ao sudoers
+#    - ⭐ Fallback SEGURO (remove, não abre NOPASSWD: ALL)
+#    - ⭐ Remove o aluno do sudo (modelo mais seguro)
 # =====================================================================
 
 set -u
@@ -50,7 +45,7 @@ else
     log "usuário $USUARIO criado"
 fi
 
-# Garante senha correta (mesmo se já existia)
+# Garante senha correta
 if ! echo "$USUARIO:$SENHA" | chpasswd; then
     log "ERRO: falha ao definir senha de $USUARIO"
     exit 1
@@ -60,7 +55,7 @@ fi
 usermod -aG sudo "$USUARIO" 2>/dev/null || true
 
 # ---------------------------------------------------------------------
-# 2) Chave pública SSH
+# 2) Chave pública SSH (para o C# conectar como nati)
 # ---------------------------------------------------------------------
 mkdir -p "/home/$USUARIO/.ssh"
 chmod 700 "/home/$USUARIO/.ssh"
@@ -79,36 +74,55 @@ systemctl enable ssh >/dev/null 2>&1 || true
 systemctl start ssh  >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------------
-# 3) Sudoers restrito
-#    ⭐ CORREÇÃO: usa o nome EXATO do usuário (nati, não NATI)
+# 3) Sudoers do nati — TODOS os comandos do lab
+#    ⭐ CORREÇÃO: adiciona Defaults:nati !requiretty e mais comandos
 # ---------------------------------------------------------------------
-SUDOERS_FILE="/etc/sudoers.d/nati-admin"
-rm -f /etc/sudoers.d/NATI /etc/sudoers.d/nati-admin
+SUDOERS_FILE="/etc/sudoers.d/nati-lab"
+rm -f /etc/sudoers.d/NATI /etc/sudoers.d/nati-admin /etc/sudoers.d/nati-lab
 
 cat > "$SUDOERS_FILE" <<EOF
 # nati - administrador do laboratório
+# Permite todos os comandos do ServidorLab sem senha
+Defaults:nati !requiretty
+
+# Pacotes (apt)
 $USUARIO ALL=(ALL) NOPASSWD: /usr/bin/apt, /usr/bin/apt-get, /usr/bin/dpkg
+
+# Scripts do ServidorLab
 $USUARIO ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block.sh
 $USUARIO ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block-sites.sh
 $USUARIO ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-unblock.sh
+$USUARIO ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block-status.sh
+$USUARIO ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-ipset-update.sh
+$USUARIO ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block-terminal.sh
+$USUARIO ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-unblock-terminal.sh
+$USUARIO ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-prova-install.sh
+$USUARIO ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-startup.sh
 EOF
+
+# Linha em branco no final
+echo "" >> "$SUDOERS_FILE"
 
 chmod 440 "$SUDOERS_FILE"
 chown root:root "$SUDOERS_FILE"
 
-# ⭐ Valida o arquivo específico
+# ⭐ Validação: se falhar, REMOVE o arquivo (não abre NOPASSWD: ALL)
 if ! visudo -cf "$SUDOERS_FILE" >/dev/null 2>&1; then
-    log "AVISO: sudoers $SUDOERS_FILE inválido - aplicando fallback"
-
-    cat > "$SUDOERS_FILE" <<EOF
-$USUARIO ALL=(ALL) NOPASSWD: ALL
-EOF
-    chmod 440 "$SUDOERS_FILE"
-    chown root:root "$SUDOERS_FILE"
+    log "ERRO: sudoers $SUDOERS_FILE inválido. Removendo."
+    rm -f "$SUDOERS_FILE"
 fi
 
 # ---------------------------------------------------------------------
-# 4) Remove 'suporte' se existir
+# 4) Remove o ALUNO do sudo (modelo mais seguro)
+# ---------------------------------------------------------------------
+deluser aluno sudo 2>/dev/null || true
+gpasswd -d aluno sudo 2>/dev/null || true
+rm -f /etc/sudoers.d/aluno-ssh
+
+log "aluno removido do sudo"
+
+# ---------------------------------------------------------------------
+# 5) Remove 'suporte' se existir
 # ---------------------------------------------------------------------
 if id "suporte" &>/dev/null; then
     pkill -9 -u "suporte" 2>/dev/null || true
@@ -117,13 +131,19 @@ if id "suporte" &>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------
-# 5) Teste final
-#    ⭐ CORREÇÃO: usa `sudo -n -l -U` (lista permissões, não executa)
+# 6) Teste final
 # ---------------------------------------------------------------------
 if sudo -n -l -U "$USUARIO" >/dev/null 2>&1; then
     log "[OK] sudoers $USUARIO OK"
 else
     log "[AVISO] sudoers $USUARIO NÃO funciona"
+fi
+
+# Confirma que o aluno NÃO tem sudo
+if groups aluno 2>/dev/null | grep -q sudo; then
+    log "[AVISO] aluno AINDA está no grupo sudo"
+else
+    log "[OK] aluno NÃO tem sudo"
 fi
 
 log "concluído"
