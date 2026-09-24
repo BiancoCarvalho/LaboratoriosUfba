@@ -7,11 +7,12 @@
 #  Roda A CADA LOGIN do aluno.
 #
 #  Mudanças em relação à v5.0.0:
-#    - ⭐ CORRIGIDO: fallback do sudoers NÃO aplica mais NOPASSWD: ALL
-#      Se o visudo falhar, o arquivo é REMOVIDO (aluno fica sem sudo)
-#    - ⭐ Adiciona lab-block-status.sh e lab-ipset-update.sh ao sudoers
-#    - ⭐ Adiciona lab-block-terminal.sh e lab-unblock-terminal.sh
-#    - Log de erro no /var/log/lab.log quando o visudo falha
+#    - ⭐ FALLBACK SEGURO: se visudo falhar, REMOVE o arquivo
+#      (antes aplicava NOPASSWD: ALL, abrindo tudo)
+#    - ⭐ Adiciona os 4 comandos que faltavam:
+#      lab-block-status.sh, lab-ipset-update.sh,
+#      lab-block-terminal.sh, lab-unblock-terminal.sh
+#    - ⭐ Linha em branco no final (evita erro do visudo)
 # =====================================================================
 
 if [[ "$USER" == "aluno" ]]; then
@@ -55,10 +56,10 @@ if [[ "$USER" == "aluno" ]]; then
     ln -sf /opt/VMs /home/$USER/VirtualBox
     ln -sf /opt/nand2tetris /home/$USER/nand2tetris
 
-    # -----------------------------------------------------------------
-    # Sudoers restrito (via /etc/sudoers.d)
-    # ⭐ CORREÇÃO CRÍTICA v6.0.0: fallback seguro
-    # -----------------------------------------------------------------
+    # =====================================================================
+    # SUDOERS RESTRITO — v6.0.0
+    # ⭐ Comandos específicos do ServidorLab
+    # =====================================================================
     rm -f /etc/sudoers.d/aluno-ssh
 
     cat > /etc/sudoers.d/aluno-ssh <<'EOF'
@@ -79,7 +80,8 @@ EOF
     chmod 440 /etc/sudoers.d/aluno-ssh
     chown root:root /etc/sudoers.d/aluno-ssh
 
-    # ⭐ VALIDAÇÃO SEGURA — se falhar, REMOVE o arquivo (não abre NOPASSWD: ALL)
+    # ⭐ FALLBACK SEGURO: se visudo falhar, REMOVE o arquivo
+    #    (antes aplicava NOPASSWD: ALL, abrindo tudo)
     if ! visudo -cf /etc/sudoers.d/aluno-ssh >/dev/null 2>&1; then
         echo "[$(date '+%F %T')] ERRO: sudoers aluno-ssh inválido. Removendo." >> /var/log/lab.log
         rm -f /etc/sudoers.d/aluno-ssh
@@ -114,7 +116,7 @@ EOF
     fi
 
     # -----------------------------------------------------------------
-    # Roda o lab-startup em background
+    # Roda o lab-startup em background (para instalar programas novos)
     # -----------------------------------------------------------------
     nohup /usr/local/sbin/lab-startup.sh > /var/log/lab-startup-postlogin.log 2>&1 &
 fi
