@@ -1,7 +1,7 @@
 #!/bin/bash
 # =====================================================================
 #  lab-block-terminal.sh
-#  v1.2.0
+#  v1.3.0
 #
 #  Bloqueia o terminal para o usuário 'aluno' (não afeta 'nati').
 #
@@ -13,12 +13,12 @@
 #    5. Esconde terminais do menu
 #    6. Mata terminais e processos do aluno (PRESERVANDO SSH)
 #
-#  CORREÇÕES v1.2.0:
-#    - NÃO mata processos SSH (evita derrubar conexão do C#)
-#    - NÃO reinicia systemd-logind (evita derrubar SSH)
+#  CORREÇÕES v1.3.0:
+#    - ⭐ NÃO mata processos SSH se estiver rodando via SSH
+#      (evita derrubar a conexão do C#)
+#    - ⭐ Corrige o `case` para pegar sshd-session, sshd-auth, etc.
+#    - ⭐ Usa `ps -o args=` além de `ps -o comm=` para maior precisão
 #    - Preserva mais processos essenciais
-#
-#  Localização: /usr/local/sbin/lab-block-terminal.sh
 # =====================================================================
 
 set -u
@@ -101,7 +101,6 @@ TTY
 
 # ⭐ NÃO reinicia systemd-logind (evita derrubar SSH)
 # A configuração só afeta novos logins. Reboot aplica.
-# systemctl restart systemd-logind 2>/dev/null || true
 log "TTY bloqueado (aplicará no próximo login)"
 
 # =========================================================
@@ -125,38 +124,58 @@ log "menus atualizados"
 
 # =========================================================
 # 6. Mata terminais e processos do aluno (PRESERVANDO SSH)
+#    ⭐ CORREÇÃO v1.3.0
 # =========================================================
 log "matando processos do aluno"
 
 MORTOS=0
 PRESERVADOS=0
 
-for pid in $(pgrep -u aluno 2>/dev/null); do
-    proc_name=$(ps -p "$pid" -o comm= 2>/dev/null)
+# ⭐ Se estiver rodando via SSH, NÃO mata processos
+#    (evita derrubar a conexão do C#)
+if [ -n "${SSH_CONNECTION:-}" ]; then
+    log "rodando via SSH — pulando kill de processos (segurança)"
+    PRESERVADOS=$(pgrep -u aluno 2>/dev/null | wc -l)
+else
+    for pid in $(pgrep -u aluno 2>/dev/null); do
+        proc_name=$(ps -p "$pid" -o comm= 2>/dev/null)
+        proc_args=$(ps -p "$pid" -o args= 2>/dev/null)
 
-    # Essenciais que NÃO devem morrer
-    case "$proc_name" in
-        # Sessão gráfica
-        gnome-shell|gnome-session-binary|gnome-session|Xorg|Xwayland|dbus-daemon|dbus-launch|gdm-session-worker)
+        # ⭐ Preserva SSH (por nome OU por argumentos)
+        if [[ "$proc_name" == sshd* ]] || [[ "$proc_args" == *sshd* ]]; then
             PRESERVADOS=$((PRESERVADOS + 1))
             continue
-            ;;
-        # Firefox (o aluno usa com sites liberados)
-        firefox|firefox-esr|firefox-bin)
-            PRESERVADOS=$((PRESERVADOS + 1))
-            continue
-            ;;
-        
-            sshd|sshd-session|systemd-user|systemd|systemd-logind|login|sudo)
-            PRESERVADOS=$((PRESERVADOS + 1))
-            continue
-            ;;
-    esac
+        fi
 
-    # Mata o resto (terminais, editores, etc)
-    kill -KILL "$pid" 2>/dev/null || true
-    MORTOS=$((MORTOS + 1))
-done
+        # Preserva sessão gráfica
+        case "$proc_name" in
+            gnome-shell|gnome-session-binary|gnome-session|Xorg|Xwayland|dbus-daemon|dbus-launch|gdm-session-worker)
+                PRESERVADOS=$((PRESERVADOS + 1))
+                continue
+                ;;
+        esac
+
+        # Preserva Firefox
+        case "$proc_name" in
+            firefox|firefox-esr|firefox-bin)
+                PRESERVADOS=$((PRESERVADOS + 1))
+                continue
+                ;;
+        esac
+
+        # Preserva processos do sistema
+        case "$proc_name" in
+            systemd|systemd-user|systemd-logind|login|sudo)
+                PRESERVADOS=$((PRESERVADOS + 1))
+                continue
+                ;;
+        esac
+
+        # Mata o resto (terminais, editores, etc)
+        kill -KILL "$pid" 2>/dev/null || true
+        MORTOS=$((MORTOS + 1))
+    done
+fi
 
 log "$MORTOS processos do aluno mortos ($PRESERVADOS preservados)"
 
