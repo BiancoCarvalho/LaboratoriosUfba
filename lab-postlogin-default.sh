@@ -1,17 +1,15 @@
 #!/bin/bash
 # =====================================================================
 #  lab-postlogin-default.sh
-#  v6.1.0
+#  v6.2.0
 #
-#  Copiado para /etc/gdm3/PostLogin/Default pelo lab-startup.sh
 #  Roda A CADA LOGIN do aluno.
 #
-#  Mudanças em relação à v6.0.0:
-#    - ⭐ Adiciona "Defaults:aluno !requiretty"
-#      (sem isso, o sudo via SSH não-interativo falha com "must have a tty")
-#    - ⭐ Remove o aluno do grupo 'sudo'
-#      (sem isso, o sudo aplica "%sudo ALL=(ALL:ALL) ALL" que pede senha
-#       e o C# não consegue aplicar o bloqueio)
+#  Mudanças em relação à v6.1.0:
+#    - ⭐ REMOVIDO: sudoers do aluno (o nati é quem roda os scripts)
+#    - ⭐ REMOVIDO: usermod -aG sudo aluno
+#    - ⭐ Remove o aluno do grupo sudo (garantia)
+#    - O aluno NÃO tem mais acesso ao sudo
 # =====================================================================
 
 if [[ "$USER" == "aluno" ]]; then
@@ -20,8 +18,16 @@ if [[ "$USER" == "aluno" ]]; then
     chown -R $USER:$USER /home/$USER
     echo "aluno:vivaoic2021!" | chpasswd
 
+    # =====================================================================
+    # ⭐ v6.2.0: REMOVE o aluno do sudo (modelo mais seguro)
+    #    O aluno NÃO roda os scripts do lab. Quem roda é o nati.
+    # =====================================================================
+    deluser aluno sudo 2>/dev/null || true
+    gpasswd -d aluno sudo 2>/dev/null || true
+    rm -f /etc/sudoers.d/aluno-ssh
+
     # -----------------------------------------------------------------
-    # Chave pública SSH (mesma do labadmin.pub)
+    # Chave pública SSH (para o aluno, se precisar)
     # -----------------------------------------------------------------
     CHAVE_PUBLICA="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMohJ7/PEW4OlfVwLcI0pZMmK0nsy05PLfYPiPCGSl6c servidor-lab@universidade"
 
@@ -55,49 +61,6 @@ if [[ "$USER" == "aluno" ]]; then
     ln -sf /opt/VMs /home/$USER/VirtualBox
     ln -sf /opt/nand2tetris /home/$USER/nand2tetris
 
-    # =====================================================================
-    # SUDOERS RESTRITO — v6.1.0
-    # =====================================================================
-    rm -f /etc/sudoers.d/aluno-ssh
-
-    cat > /etc/sudoers.d/aluno-ssh <<'EOF'
-# aluno - permite apenas comandos especificos do ServidorLab
-Defaults:aluno !requiretty
-aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block.sh
-aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block-sites.sh
-aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-unblock.sh
-aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block-status.sh
-aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-ipset-update.sh
-aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block-terminal.sh
-aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-unblock-terminal.sh
-aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-prova-install.sh
-EOF
-
-    # Linha em branco no final (evita erro do visudo)
-    echo "" >> /etc/sudoers.d/aluno-ssh
-
-    chmod 440 /etc/sudoers.d/aluno-ssh
-    chown root:root /etc/sudoers.d/aluno-ssh
-
-    # ⭐ FALLBACK SEGURO: se visudo falhar, REMOVE o arquivo
-    if ! visudo -cf /etc/sudoers.d/aluno-ssh >/dev/null 2>&1; then
-        echo "[$(date '+%F %T')] ERRO: sudoers aluno-ssh inválido. Removendo." >> /var/log/lab.log
-        rm -f /etc/sudoers.d/aluno-ssh
-    fi
-
-    # =====================================================================
-    # ⭐ v6.1.0: REMOVE o aluno do grupo 'sudo'
-    #    Motivo: o /etc/sudoers tem a linha
-    #      %sudo   ALL=(ALL:ALL) ALL
-    #    Se o aluno está no grupo sudo, ele pode rodar QUALQUER comando
-    #    (com senha). Isso faz o sudo pedir senha no SSH não-interativo
-    #    e o lab-block.sh falha.
-    # =====================================================================
-    if groups aluno 2>/dev/null | grep -q '\bsudo\b'; then
-        deluser aluno sudo 2>/dev/null || true
-        echo "[$(date '+%F %T')] aluno removido do grupo sudo" >> /var/log/lab.log
-    fi
-
     # -----------------------------------------------------------------
     # MySQL
     # -----------------------------------------------------------------
@@ -127,7 +90,7 @@ EOF
     fi
 
     # -----------------------------------------------------------------
-    # Roda o lab-startup em background (para instalar programas novos)
+    # Roda o lab-startup em background
     # -----------------------------------------------------------------
     nohup /usr/local/sbin/lab-startup.sh > /var/log/lab-startup-postlogin.log 2>&1 &
 fi
