@@ -715,28 +715,40 @@ fi
 # =====================================================================
 # 38) Firefox (.deb) — NO FINAL
 # =====================================================================
-echo "→ Verificando Firefox (.deb)..."
+echo "→ Verificando Firefox..."
 
-# Se já é .deb (ELF), pula
-if file /usr/bin/firefox 2>/dev/null | grep -q "ELF"; then
+# Detecção robusta: verifica se o binário é REAL (não wrapper nem symlink para snap)
+FIREFOX_REAL=false
+
+if [ -f /usr/lib/firefox/firefox ]; then
+    # Firefox .deb da Mozilla instala o binário real em /usr/lib/firefox/firefox
+    if file /usr/lib/firefox/firefox 2>/dev/null | grep -q "ELF"; then
+        FIREFOX_REAL=true
+    fi
+fi
+
+if [ "$FIREFOX_REAL" = "true" ]; then
     echo "✅ Firefox .deb já instalado. Pulando."
 else
     echo "→ Instalando Firefox (.deb)..."
 
     # 1. Remove o Snap (se existir)
-    if snap list 2>/dev/null | grep -q firefox; then
-        echo "→ Removendo Firefox Snap..."
+    if snap list 2>/dev/null | grep -q "^firefox"; then
+        echo "  Removendo Firefox Snap..."
         snap remove firefox 2>/dev/null || true
-        sleep 2
+        sleep 3
     fi
 
-    # 2. Remove o pacote wrapper do apt
-    if dpkg -l | grep -q "^ii  firefox"; then
-        apt remove -y firefox 2>/dev/null || true
-        apt autoremove -y 2>/dev/null || true
-    fi
+    # 2. Remove pacotes de transição do Ubuntu (firefox, firefox-esr)
+    for pkg in firefox firefox-esr; do
+        if dpkg -l 2>/dev/null | grep -q "^ii  $pkg"; then
+            echo "  Removendo pacote apt: $pkg"
+            apt-get remove -y "$pkg" 2>/dev/null || true
+        fi
+    done
+    apt-get autoremove -y 2>/dev/null || true
 
-    # 3. Bloqueia reinstalacao do snap
+    # 3. Bloqueia reinstalação via snap
     mkdir -p /etc/apt/preferences.d
     cat > /etc/apt/preferences.d/firefox-no-snap <<'EOF'
 Package: firefox*
@@ -744,9 +756,11 @@ Pin: release o=Ubuntu*
 Pin-Priority: -1
 EOF
 
-    # 4. Adiciona o PPA da Mozilla
-    add-apt-repository -y ppa:mozillateam/ppa 2>/dev/null
-    apt-get update -y
+    # 4. Adiciona PPA da Mozilla
+    if ! grep -q "mozillateam" /etc/apt/sources.list.d/*.list 2>/dev/null; then
+        add-apt-repository -y ppa:mozillateam/ppa 2>/dev/null
+        apt-get update -y
+    fi
 
     # 5. Prioriza o PPA
     cat > /etc/apt/preferences.d/mozilla-firefox <<'EOF'
@@ -758,13 +772,13 @@ EOF
     # 6. Instala o .deb
     DEBIAN_FRONTEND=noninteractive apt-get install -y firefox --allow-downgrades
 
-    # 7. Valida
-    if file /usr/bin/firefox 2>/dev/null | grep -q "ELF"; then
+    # 7. Valida de novo (agora com /usr/lib/firefox/firefox)
+    if [ -f /usr/lib/firefox/firefox ] && \
+       file /usr/lib/firefox/firefox 2>/dev/null | grep -q "ELF"; then
         echo "[SUCESSO] Firefox .deb instalado"
     else
-        echo "[AVISO] Firefox ainda e wrapper (snap)"
+        echo "[AVISO] Firefox pode estar como snap/wrapper ainda"
     fi
-    check_install firefox
 fi
 
 # =====================================================================
