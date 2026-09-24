@@ -615,15 +615,15 @@ fi
 # =====================================================================
 # 34) Google Chrome
 # =====================================================================
-if ! command -v google-chrome &>/dev/null; then
-    echo "→ Instalando Google Chrome..."
-    wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb
-    dpkg -i /tmp/chrome.deb || apt-get -f install -y
-    rm /tmp/chrome.deb
-    check_install google-chrome
-else
-    echo "✅ Google Chrome já instalado. Pulando."
-fi
+#if ! command -v google-chrome &>/dev/null; then
+#    echo "→ Instalando Google Chrome..."
+#    wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb
+#    dpkg -i /tmp/chrome.deb || apt-get -f install -y
+#    rm /tmp/chrome.deb
+#    check_install google-chrome
+#else
+#    echo "✅ Google Chrome já instalado. Pulando."
+#fi
 
 # =====================================================================
 # 35) Android Studio
