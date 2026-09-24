@@ -1,26 +1,31 @@
 #!/bin/bash
 # =====================================================================
 #  lab-programs.sh
-#  v13.0.0
+#  v4.0.0
 #
-#  Instala todos os programas do laboratorio.
-#
-#  v13.0.0:
-#    - Verificacao em TODOS os blocos (pula se ja instalado)
-#    - Docker: verifica binario + grupo
-#    - PostgreSQL 17: verifica versao especifica
-#    - Jupyter: verifica via pip show
-#    - SWI-Prolog sem PPA (mantido)
-#    - Firefox .deb no final (mantido)
+#  Mudanças em relação à versão anterior:
+#    - Adiciona "fix de ambiente" (repositórios quebrados) com flag
+#    - Fix do Firefox isolado com flag própria
+#    - Reaplica lab-block.sh se houver reserva ativa no fim
+#    - Log completo em /var/log/lab-programs.log
+#    - Não roda fix durante reserva ativa
 # =====================================================================
 
 export DEBIAN_FRONTEND=noninteractive
+
+LOG="/var/log/lab-programs.log"
+exec >> "$LOG" 2>&1
+
+echo ""
+echo "[$(date '+%F %T')] ==============================================="
+echo "[$(date '+%F %T')] LAB-PROGRAMS INICIADO"
+echo "[$(date '+%F %T')] ==============================================="
 
 # =====================================================================
 # Funcao para verificar instalacao
 # =====================================================================
 check_install() {
-    if command -v $1 &>/dev/null; then
+    if command -v "$1" &>/dev/null; then
         echo "[SUCESSO] $1 instalado corretamente"
         return 0
     else
@@ -30,8 +35,46 @@ check_install() {
 }
 
 # =====================================================================
+# FIX DE AMBIENTE — RODA UMA VEZ
+#   - Remove repositórios duplicados (vscode.list)
+#   - Remove PPA do SWI-Prolog quebrado
+#   - Corrige APT (--fix-broken, autoremove, clean, update)
+#   - Se houver reserva ativa, adia para o próximo boot
+# =====================================================================
+FIX_ENV_FLAG="/usr/local/sbin/.fix-ambiente-done"
+
+if [ ! -f "$FIX_ENV_FLAG" ]; then
+    echo ""
+    echo "=================================================="
+    echo "  FIX DE AMBIENTE (uma vez)"
+    echo "=================================================="
+
+    if [ -f /run/lab-block.args ]; then
+        echo "  ⚠️  Reserva ativa — adiando fix para o próximo boot"
+    else
+        echo "  → Removendo repositórios duplicados..."
+        rm -f /etc/apt/sources.list.d/vscode.list
+
+        echo "  → Removendo PPA do SWI-Prolog (se existir)..."
+        add-apt-repository -r -y ppa:swi-prolog/stable 2>/dev/null || true
+        rm -f /etc/apt/sources.list.d/swi-prolog* 2>/dev/null
+        rm -f /etc/apt/trusted.gpg.d/*swi-prolog* 2>/dev/null
+
+        echo "  → Corrigindo APT..."
+        apt --fix-broken install -y 2>&1 | tail -3
+        apt autoremove -y 2>&1 | tail -3
+        apt clean
+        apt update 2>&1 | tail -3
+
+        touch "$FIX_ENV_FLAG"
+        echo "  ✅ Fix de ambiente concluído — flag: $FIX_ENV_FLAG"
+    fi
+fi
+
+# =====================================================================
 # 0) Bloquear modulo algif_aead
 # =====================================================================
+echo ""
 echo "Configurando bloqueio do modulo algif_aead..."
 CONF="/etc/modprobe.d/manual-disable-algif_aead.conf"
 if ! grep -q "algif_aead" "$CONF" 2>/dev/null; then
@@ -169,7 +212,7 @@ else
 fi
 
 # =====================================================================
-# 8) Docker (verifica binario + grupo)
+# 8) Docker
 # =====================================================================
 USERNAME=${SUDO_USER:-$USER}
 DOCKER_OK=false
@@ -371,7 +414,7 @@ else
 fi
 
 # =====================================================================
-# 19) PostgreSQL 17 (verifica versao especifica)
+# 19) PostgreSQL 17
 # =====================================================================
 if ! dpkg -l | grep -q postgresql-17; then
     echo "→ Instalando PostgreSQL 17..."
@@ -615,46 +658,14 @@ fi
 # =====================================================================
 # 34) Google Chrome
 # =====================================================================
-#if ! command -v google-chrome &>/dev/null; then
-#    echo "→ Instalando Google Chrome..."
-#    wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb
-#    dpkg -i /tmp/chrome.deb || apt-get -f install -y
-#    rm /tmp/chrome.deb
-#    check_install google-chrome
-#else
-#    echo "✅ Google Chrome já instalado. Pulando."
-#fi
-
-# =====================================================================
-# 34) Google Chrome — DESINSTALAR
-# =====================================================================
-if dpkg -l 2>/dev/null | grep -q "^ii  google-chrome"; then
-    echo "→ Desinstalando Google Chrome..."
-    
-    # 1. Purga o pacote (remove binário + configs)
-    apt-get purge -y google-chrome-stable
-    
-    # 2. Remove dependências órfãs
-    apt-get autoremove -y
-    
-    # 3. Remove o repositório do Chrome (se existir)
-    rm -f /etc/apt/sources.list.d/google-chrome.list
-    
-    # 4. Remove a chave GPG do Google (opcional)
-    rm -f /etc/apt/trusted.gpg.d/google-chrome.gpg
-    rm -f /etc/apt/trusted.gpg.d/google-chrome-stable.gpg
-    
-    # 5. Atualiza o índice do apt
-    apt-get update -y
-    
-    # 6. Valida
-    if command -v google-chrome &>/dev/null; then
-        echo "[ERRO] Chrome ainda presente"
-    else
-        echo "[SUCESSO] Chrome desinstalado"
-    fi
+if ! command -v google-chrome &>/dev/null; then
+    echo "→ Instalando Google Chrome..."
+    wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb
+    dpkg -i /tmp/chrome.deb || apt-get -f install -y
+    rm /tmp/chrome.deb
+    check_install google-chrome
 else
-    echo "✅ Google Chrome não está instalado. Nada a fazer."
+    echo "✅ Google Chrome já instalado. Pulando."
 fi
 
 # =====================================================================
@@ -713,71 +724,87 @@ else
 fi
 
 # =====================================================================
-# 38) Firefox (.deb) — NO FINAL
+# 38) Firefox (.deb) — BLOCO ISOLADO COM FLAG
+#     Roda uma vez, e só se NÃO houver reserva ativa
 # =====================================================================
-echo "→ Verificando Firefox..."
+FIX_FIREFOX_FLAG="/usr/local/sbin/.fix-firefox-done"
 
-# Detecção robusta: verifica se o binário é REAL (não wrapper nem symlink para snap)
-FIREFOX_REAL=false
+if [ ! -f "$FIX_FIREFOX_FLAG" ]; then
+    echo ""
+    echo "=================================================="
+    echo "  FIX DO FIREFOX (snap → .deb) — uma vez"
+    echo "=================================================="
 
-if [ -f /usr/lib/firefox/firefox ]; then
-    # Firefox .deb da Mozilla instala o binário real em /usr/lib/firefox/firefox
-    if file /usr/lib/firefox/firefox 2>/dev/null | grep -q "ELF"; then
-        FIREFOX_REAL=true
-    fi
-fi
+    if [ -f /run/lab-block.args ]; then
+        echo "  ⚠️  Reserva ativa — adiando fix para o próximo boot"
+    else
+        # Se já é .deb (ELF), marca a flag e pula
+        if file /usr/bin/firefox 2>/dev/null | grep -q "ELF"; then
+            echo "  ✅ Firefox já é .deb. Marcando flag."
+            touch "$FIX_FIREFOX_FLAG"
+        else
+            echo "  → Convertendo Firefox snap → .deb..."
 
-if [ "$FIREFOX_REAL" = "true" ]; then
-    echo "✅ Firefox .deb já instalado. Pulando."
-else
-    echo "→ Instalando Firefox (.deb)..."
+            # 1. Remove o snap
+            if snap list 2>/dev/null | grep -q firefox; then
+                echo "    - Removendo snap..."
+                snap remove firefox 2>/dev/null || true
+                sleep 2
+            fi
 
-    # 1. Remove o Snap (se existir)
-    if snap list 2>/dev/null | grep -q "^firefox"; then
-        echo "  Removendo Firefox Snap..."
-        snap remove firefox 2>/dev/null || true
-        sleep 3
-    fi
+            # 2. Remove resíduos do snap
+            rm -rf /snap/firefox 2>/dev/null
+            rm -rf /var/snap/firefox 2>/dev/null
 
-    # 2. Remove pacotes de transição do Ubuntu (firefox, firefox-esr)
-    for pkg in firefox firefox-esr; do
-        if dpkg -l 2>/dev/null | grep -q "^ii  $pkg"; then
-            echo "  Removendo pacote apt: $pkg"
-            apt-get remove -y "$pkg" 2>/dev/null || true
-        fi
-    done
-    apt-get autoremove -y 2>/dev/null || true
+            # 3. Remove o wrapper do apt
+            if dpkg -l | grep -q "^ii  firefox"; then
+                apt remove -y firefox 2>/dev/null || true
+                apt autoremove -y 2>/dev/null || true
+            fi
 
-    # 3. Bloqueia reinstalação via snap
-    mkdir -p /etc/apt/preferences.d
-    cat > /etc/apt/preferences.d/firefox-no-snap <<'EOF'
+            # 4. Bloqueia reinstalação do snap
+            mkdir -p /etc/apt/preferences.d
+            cat > /etc/apt/preferences.d/firefox-no-snap <<'EOF'
 Package: firefox*
 Pin: release o=Ubuntu*
 Pin-Priority: -1
 EOF
 
-    # 4. Adiciona PPA da Mozilla
-    if ! grep -q "mozillateam" /etc/apt/sources.list.d/*.list 2>/dev/null; then
-        add-apt-repository -y ppa:mozillateam/ppa 2>/dev/null
-        apt-get update -y
-    fi
+            # 5. Adiciona o PPA da Mozilla
+            add-apt-repository -y ppa:mozillateam/ppa 2>/dev/null
+            apt-get update -y
 
-    # 5. Prioriza o PPA
-    cat > /etc/apt/preferences.d/mozilla-firefox <<'EOF'
+            # 6. Prioriza o PPA
+            cat > /etc/apt/preferences.d/mozilla-firefox <<'EOF'
 Package: firefox*
 Pin: release o=LP-PPA-mozillateam
 Pin-Priority: 1001
 EOF
 
-    # 6. Instala o .deb
-    DEBIAN_FRONTEND=noninteractive apt-get install -y firefox --allow-downgrades
+            # 7. Instala o .deb
+            DEBIAN_FRONTEND=noninteractive apt-get install -y firefox --allow-downgrades
 
-    # 7. Valida de novo (agora com /usr/lib/firefox/firefox)
-    if [ -f /usr/lib/firefox/firefox ] && \
-       file /usr/lib/firefox/firefox 2>/dev/null | grep -q "ELF"; then
-        echo "[SUCESSO] Firefox .deb instalado"
-    else
-        echo "[AVISO] Firefox pode estar como snap/wrapper ainda"
+            # 8. Valida
+            if file /usr/bin/firefox 2>/dev/null | grep -q "ELF"; then
+                echo "    ✅ Firefox .deb instalado"
+                touch "$FIX_FIREFOX_FLAG"
+            else
+                echo "    ⚠️  Firefox ainda é wrapper (snap). Não marcando flag para tentar de novo."
+            fi
+        fi
+    fi
+fi
+
+# =====================================================================
+# 39) Reaplica bloqueio se houver reserva ativa
+#     (garante que o Firefox .deb já está bloqueado)
+# =====================================================================
+if [ -f /run/lab-block.args ]; then
+    ARGS="$(cat /run/lab-block.args)"
+    echo ""
+    echo "[39] Reaplicando bloqueio: $ARGS"
+    if [ -x /usr/local/sbin/lab-block.sh ]; then
+        /usr/local/sbin/lab-block.sh "$ARGS"
     fi
 fi
 
@@ -787,6 +814,7 @@ fi
 echo ""
 echo "=================================================="
 echo " INSTALACAO CONCLUIDA"
+echo " $(date '+%F %T')"
 echo "=================================================="
 
 exit 0
