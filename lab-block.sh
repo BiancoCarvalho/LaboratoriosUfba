@@ -1,73 +1,100 @@
 #!/bin/bash
 # =====================================================================
 #  lab-block.sh
-#  v10.2.0
+#  v10.1.0
 #
-#  Bloqueia tudo exceto os sites liberados.
+#  Bloqueia TUDO no Firefox/Chrome, exceto os domínios informados.
+#  Também bloqueia armazenamento USB (pendrive, HD externo, cartão SD).
 #
-#  CORREÇÕES v10.2.0:
-#    - Remove chamada a lab-block-sites.sh (não precisa mais)
-#    - Não roda update-initramfs (lento demais)
-#    - Kill de browsers com verificação de usuário
-#    - Timeout em cada operação
-#    - Log estruturado
+#  Uso:
+#    sudo /usr/local/sbin/lab-block.sh
+#    sudo /usr/local/sbin/lab-block.sh "jude.dcc.ufba.br,google.com"
 # =====================================================================
 
 set -u
 
 LOG="/var/log/lab.log"
+
 LIBERADOS_ARG="${1:-jude.dcc.ufba.br,*.dcc.ufba.br}"
 
-log() {
-    echo "[$(date '+%F %T')] host=$(hostname) BLOCK: $*" >> "$LOG"
-}
-
-log "iniciado (liberados: $LIBERADOS_ARG)"
+echo "[$(date '+%F %T')] host=$(hostname) BLOCK: iniciado (liberados: $LIBERADOS_ARG)" >> "$LOG"
 
 # =========================================================
-# Sanitização dos domínios
+# Sanitização da lista de domínios
 # =========================================================
 SANITIZAR='s/[^a-zA-Z0-9.\-*,]//g'
-IFS=',' read -ra LISTA_RAW <<< "$LIBERADOS_ARG"
-LISTA=()
 
+IFS=',' read -ra LISTA_RAW <<< "$LIBERADOS_ARG"
+
+LISTA=()
 for s in "${LISTA_RAW[@]}"; do
+    # trim + sanitiza
     s=$(echo "$s" | xargs | sed "$SANITIZAR")
+
+    # pula vazios
     [ -z "$s" ] && continue
-    s="${s%.}"; s="${s#.}"
+
+    # remove ponto/hífen nas pontas
+    s="${s%.}"
+    s="${s#.}"
+    s="${s#-}"
+    s="${s%-}"
+
     [ -z "$s" ] && continue
+
     LISTA+=("$s")
 done
 
+# ⭐ Só cai no fallback se a lista realmente ficou vazia
 if [ ${#LISTA[@]} -eq 0 ]; then
+    echo "[$(date '+%F %T')] host=$(hostname) BLOCK: lista vazia, usando fallback" >> "$LOG"
     LISTA=("jude.dcc.ufba.br" "*.dcc.ufba.br")
 fi
 
-log "lista final: ${LISTA[*]}"
+echo "[$(date '+%F %T')] host=$(hostname) BLOCK: lista final: ${LISTA[*]}" >> "$LOG"
 
 # =========================================================
-# Firefox — Exceções
+# Exceções do Firefox
+#
+# Para cada domínio, geramos:
+#   - domínio exato (com e sem www)
+#   - todos os subdomínios (*.dominio)
 # =========================================================
 EXCECOES=""
-adicionar_excecao() { EXCECOES="$EXCECOES\"$1\","; }
+
+adicionar_excecao() {
+    local url="$1"
+    EXCECOES="$EXCECOES\"$url\","
+}
 
 for s in "${LISTA[@]}"; do
     if echo "$s" | grep -q '\*'; then
+        # Wildcard explícito: usuário já sabe o que quer
         adicionar_excecao "https://$s/*"
         adicionar_excecao "http://$s/*"
     else
+        # Domínio raiz
         adicionar_excecao "https://$s"
         adicionar_excecao "http://$s"
         adicionar_excecao "https://$s/*"
         adicionar_excecao "http://$s/*"
+
+        # Subdomínios (www, mail, etc)
         adicionar_excecao "https://*.$s/*"
         adicionar_excecao "http://*.$s/*"
+
+        # www explícito (garantia)
         adicionar_excecao "https://www.$s/*"
         adicionar_excecao "http://www.$s/*"
     fi
 done
+
+# Remove a última vírgula
 EXCECOES="${EXCECOES%,}"
 
+# =========================================================
+# JSON do Firefox
+# =========================================================
 FIREFOX_POLICIES=$(cat <<EOF
 {
   "policies": {
@@ -93,44 +120,46 @@ FIREFOX_POLICIES=$(cat <<EOF
     "OfferToSaveLogins": false,
     "PasswordManagerEnabled": false,
     "NoDefaultBookmarks": true,
-    "InstallAddonsPermission": { "Default": false },
+    "InstallAddonsPermission": {
+      "Default": false
+    },
     "Permissions": {
-      "Location":      { "BlockNewRequests": true },
+      "Location": { "BlockNewRequests": true },
       "Notifications": { "BlockNewRequests": true },
-      "Camera":        { "BlockNewRequests": true },
-      "Microphone":    { "BlockNewRequests": true }
+      "Camera": { "BlockNewRequests": true },
+      "Microphone": { "BlockNewRequests": true }
     },
     "Preferences": {
-      "network.trr.mode":                          { "Value": 5,     "Status": "locked" },
-      "network.proxy.type":                        { "Value": 0,     "Status": "locked" },
-      "network.protocol-handler.external.irc":     { "Value": false, "Status": "locked" },
-      "network.protocol-handler.external.ftp":     { "Value": false, "Status": "locked" },
-      "network.protocol-handler.external.mailto":  { "Value": false, "Status": "locked" },
-      "network.protocol-handler.external.file":    { "Value": false, "Status": "locked" }
+      "network.trr.mode":                         { "Value": 5,     "Status": "locked" },
+      "network.proxy.type":                       { "Value": 0,     "Status": "locked" },
+      "network.protocol-handler.external.irc":    { "Value": false, "Status": "locked" },
+      "network.protocol-handler.external.ftp":    { "Value": false, "Status": "locked" },
+      "network.protocol-handler.external.mailto": { "Value": false, "Status": "locked" },
+      "network.protocol-handler.external.file":   { "Value": false, "Status": "locked" }
     }
   }
 }
 EOF
 )
 
-# Firefox Snap
+# Aplica no Firefox snap (Ubuntu 22.04+)
 if [ -d /snap/firefox ] || snap list firefox &>/dev/null; then
     mkdir -p /var/snap/firefox/common/policies
     echo "$FIREFOX_POLICIES" > /var/snap/firefox/common/policies/policies.json
     chmod 644 /var/snap/firefox/common/policies/policies.json
-    log "políticas Firefox Snap aplicadas"
+    echo "[$(date '+%F %T')] host=$(hostname) BLOCK: políticas Firefox snap aplicadas" >> "$LOG"
 fi
 
-# Firefox .deb
+# Aplica no Firefox .deb
 if [ -f /usr/lib/firefox/firefox ] || [ -f /usr/lib/firefox/firefox.sh ]; then
     mkdir -p /etc/firefox/policies
     echo "$FIREFOX_POLICIES" > /etc/firefox/policies/policies.json
     chmod 644 /etc/firefox/policies/policies.json
-    log "políticas Firefox .deb aplicadas"
+    echo "[$(date '+%F %T')] host=$(hostname) BLOCK: políticas Firefox .deb aplicadas" >> "$LOG"
 fi
 
 # =========================================================
-# Chrome/Chromium
+# Chrome / Chromium
 # =========================================================
 ALLOWLIST=""
 for s in "${LISTA[@]}"; do
@@ -177,57 +206,54 @@ if [ -d /opt/google/chrome ] || command -v google-chrome &>/dev/null; then
     mkdir -p /etc/opt/chrome/policies/managed
     echo "$CHROME_POLICIES" > /etc/opt/chrome/policies/managed/policies.json
     chmod 644 /etc/opt/chrome/policies/managed/policies.json
-    log "políticas Chrome aplicadas"
 fi
 
 if [ -d /usr/lib/chromium ] || command -v chromium &>/dev/null; then
     mkdir -p /etc/opt/chromium/policies/managed
     echo "$CHROME_POLICIES" > /etc/opt/chromium/policies/managed/policies.json
     chmod 644 /etc/opt/chromium/policies/managed/policies.json
-    log "políticas Chromium aplicadas"
 fi
 
 # =========================================================
-# USB — Bloqueia armazenamento removível
+# BLOCK DE PENDRIVE / ARMAZENAMENTO USB
 # =========================================================
 USB_CONF="/etc/modprobe.d/lab-usb.conf"
 
-cat > "$USB_CONF" <<EOF
-# Bloqueio de armazenamento USB — gerado por lab-block.sh
-install usb-storage /bin/false
-blacklist usb-storage
-EOF
+{
+    echo "# Bloqueio de armazenamento USB — gerado por lab-block.sh"
+    echo "install usb-storage /bin/false"
+    echo "blacklist usb-storage"
+} > "$USB_CONF"
+
 chmod 644 "$USB_CONF"
 
-# ⭐ NÃO roda update-initramfs (lento demais para SSH)
-# O módulo já está carregado, então só descarrega se possível
+# Descarrega o módulo agora, se estiver carregado
 if lsmod | grep -q '^usb_storage'; then
-    modprobe -r usb-storage 2>/dev/null || true
+    modprobe -r usb-storage 2>/dev/null \
+        && echo "[$(date '+%F %T')] host=$(hostname) BLOCK: usb-storage descarregado" >> "$LOG" \
+        || echo "[$(date '+%F %T')] host=$(hostname) BLOCK: AVISO: falha ao descarregar usb-storage" >> "$LOG"
 fi
 
-log "USB bloqueado (initramfs NÃO atualizado — evita timeout)"
+# ⭐ update-initramfs NÃO é chamado aqui — é lento e só precisa rodar UMA vez.
+#    Rode manualmente: sudo update-initramfs -u
+echo "[$(date '+%F %T')] host=$(hostname) BLOCK: USB bloqueado (initramfs NÃO atualizado — evita timeout)" >> "$LOG"
 
 # =========================================================
-# Mata navegadores para forçar releitura
+# Mata navegadores (força releitura das políticas)
 # =========================================================
-BROWSERS=(
-    firefox firefox-esr
-    chrome google-chrome
-    chromium chromium-browser
-    falkon epiphany midori qutebrowser surf
-)
+BROWSERS=(firefox firefox-esr chrome google-chrome chromium chromium-browser falkon epiphany midori qutebrowser surf)
 
-# TERM educado
+# SIGTERM global (pkill -x pega todos os usuários)
 for b in "${BROWSERS[@]}"; do
     pkill -TERM -x "$b" 2>/dev/null || true
 done
 
 sleep 1
 
-# KILL garantido
+# SIGKILL global
 for b in "${BROWSERS[@]}"; do
     pkill -KILL -x "$b" 2>/dev/null || true
 done
 
-log "concluído — liberados: ${LISTA[*]}"
+echo "[$(date '+%F %T')] host=$(hostname) BLOCK: concluído — liberados: ${LISTA[*]}" >> "$LOG"
 exit 0
