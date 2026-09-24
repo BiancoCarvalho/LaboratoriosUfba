@@ -1,16 +1,20 @@
 #!/bin/bash
 # =====================================================================
 #  lab-postlogin-default.sh
-#  v8.0.0
+#  v8.1.0
 #
-#  Mudanças em relação à v7.0.0:
-#    - ⭐ NÃO apaga mais o home do aluno durante o login
-#      (era a causa do GDM kickar o aluno)
-#    - ⭐ Só garante que o home existe e está correto
-#    - ⭐ Recria o home SOMENTE se ele não existir
+#  Mudanças em relação à v8.0.0:
+#    - ⭐ REMOVIDO `set -euo pipefail` (abortava o login)
+#    - ⭐ Adicionado `set +e` explícito (NÃO aborta)
+#    - ⭐ Comandos pesados movidos para BACKGROUND
+#    - ⭐ Timeout de 5s em cada comando crítico
+#    - ⭐ Log de tudo (para diagnóstico)
+#    - ⭐ NÃO apaga o home (como já era)
 # =====================================================================
 
-set -euo pipefail
+set +e    # ⭐ NÃO aborta em erro
+set +u    # ⭐ NÃO aborta em variável não definida
+set +o pipefail
 
 LOG="/var/log/lab.log"
 
@@ -26,128 +30,143 @@ fi
 log "iniciado"
 
 # =====================================================================
-# ⭐ 1) GARANTE O HOME SEM APAGAR
-#     Só recria se NÃO existir
+# ⭐ TUDO em BACKGROUND — o login do aluno NÃO espera
 # =====================================================================
-if [ ! -d /home/aluno ]; then
-    log "home do aluno não existe — criando"
-    cp -r /etc/skel /home/aluno
-    chown -R aluno:aluno /home/aluno
-    chmod 700 /home/aluno
-else
-    log "home do aluno já existe — mantendo"
-fi
+(
+    # ⭐ Timeout global: se demorar mais que 120s, mata
+    timeout 120 bash -c '
+        LOG="/var/log/lab.log"
+        log() { echo "[$(date "+%F %T")] host=$(hostname) POSTLOGIN-BG: $*" >> "$LOG" 2>/dev/null || true; }
 
-# Garante permissões corretas (sem apagar)
-chown aluno:aluno /home/aluno
-chmod 700 /home/aluno
+        log "background iniciado"
 
-# Garante a senha
-echo "aluno:vivaoic2021!" | chpasswd
+        # -------------------------------------------------------------
+        # 1) Home do aluno (SEM apagar)
+        # -------------------------------------------------------------
+        if [ ! -d /home/aluno ]; then
+            log "home do aluno não existe — criando"
+            cp -r /etc/skel /home/aluno 2>/dev/null
+            chown -R aluno:aluno /home/aluno 2>/dev/null
+            chmod 700 /home/aluno 2>/dev/null
+        fi
 
-log "home garantido"
+        chown aluno:aluno /home/aluno 2>/dev/null
+        chmod 700 /home/aluno 2>/dev/null
 
-# =====================================================================
-# 2) Chave SSH
-# =====================================================================
-CHAVE_PUBLICA="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMohJ7/PEW4OlfVwLcI0pZMmK0nsy05PLfYPiPCGSl6c servidor-lab@universidade"
+        # Garante a senha (com timeout)
+        echo "aluno:vivaoic2021!" | timeout 5 chpasswd 2>/dev/null || true
 
-mkdir -p /home/aluno/.ssh
-chmod 700 /home/aluno/.ssh
-chown aluno:aluno /home/aluno/.ssh
+        log "home garantido"
 
-# Escrita atômica
-TMP="/tmp/.postlogin-authorized-$$"
-printf '%s\n' "$CHAVE_PUBLICA" > "$TMP"
+        # -------------------------------------------------------------
+        # 2) Chave SSH
+        # -------------------------------------------------------------
+        CHAVE_PUBLICA="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMohJ7/PEW4OlfVwLcI0pZMmK0nsy05PLfYPiPCGSl6c servidor-lab@universidade"
 
-if grep -qF "servidor-lab@universidade" "$TMP"; then
-    mv "$TMP" "/home/aluno/.ssh/authorized_keys"
-    chmod 600 /home/aluno/.ssh/authorized_keys
-    chown aluno:aluno /home/aluno/.ssh/authorized_keys
-    log "chave SSH configurada"
-else
-    log "ERRO: falha ao escrever authorized_keys"
-    rm -f "$TMP"
-fi
+        mkdir -p /home/aluno/.ssh 2>/dev/null
+        chmod 700 /home/aluno/.ssh 2>/dev/null
+        chown aluno:aluno /home/aluno/.ssh 2>/dev/null
 
-# =====================================================================
-# 3) SSH rodando
-# =====================================================================
-systemctl enable ssh >/dev/null 2>&1 || true
-systemctl start ssh  >/dev/null 2>&1 || true
+        TMP="/tmp/.postlogin-authorized-$$"
+        printf "%s\n" "$CHAVE_PUBLICA" > "$TMP"
 
-# =====================================================================
-# 4) PATHs — sem duplicação
-# =====================================================================
-if [ -f /home/aluno/.bashrc ]; then
-    sed -i '/opt\/flutter\/bin/d' /home/aluno/.bashrc 2>/dev/null || true
-    sed -i '/opt\/android-studio/d' /home/aluno/.bashrc 2>/dev/null || true
-fi
+        if grep -qF "servidor-lab@universidade" "$TMP"; then
+            mv "$TMP" "/home/aluno/.ssh/authorized_keys"
+            chmod 600 /home/aluno/.ssh/authorized_keys
+            chown aluno:aluno /home/aluno/.ssh/authorized_keys
+            log "chave SSH configurada"
+        else
+            log "ERRO: falha ao escrever authorized_keys"
+            rm -f "$TMP"
+        fi
 
-echo 'export PATH="/opt/flutter/bin:$PATH"' >> /home/aluno/.bashrc
-echo 'export PATH="/opt/android-studio/bin:/opt/Android/Sdk/platform-tools:$PATH"' >> /home/aluno/.bashrc
+        # -------------------------------------------------------------
+        # 3) SSH rodando
+        # -------------------------------------------------------------
+        systemctl enable ssh >/dev/null 2>&1 || true
+        systemctl start ssh  >/dev/null 2>&1 || true
 
-rm -f /opt/flutter/bin/cache/lockfile
+        # -------------------------------------------------------------
+        # 4) PATHs (sem duplicação)
+        # -------------------------------------------------------------
+        if [ -f /home/aluno/.bashrc ]; then
+            sed -i "/opt\/flutter\/bin/d" /home/aluno/.bashrc 2>/dev/null || true
+            sed -i "/opt\/android-studio/d" /home/aluno/.bashrc 2>/dev/null || true
+        fi
 
-chown -R aluno:aluno /opt/flutter /opt/nand2tetris /opt/VMs 2>/dev/null || true
+        echo "export PATH=\"/opt/flutter/bin:\$PATH\"" >> /home/aluno/.bashrc 2>/dev/null
+        echo "export PATH=\"/opt/android-studio/bin:/opt/Android/Sdk/platform-tools:\$PATH\"" >> /home/aluno/.bashrc 2>/dev/null
 
-log "PATHs configurados"
+        rm -f /opt/flutter/bin/cache/lockfile 2>/dev/null
 
-# =====================================================================
-# 5) Links simbólicos
-# =====================================================================
-mkdir -p /home/aluno/Unity/Hub
-ln -sf /opt/Unity /home/aluno/Unity/Hub/Editor
-ln -sf /opt/gradle /home/aluno/.gradle
-ln -sf /opt/npm /home/aluno/.npm
-ln -sf /opt/VMs /home/aluno/VirtualBox
-ln -sf /opt/nand2tetris /home/aluno/nand2tetris
+        # chown -R pode demorar — coloca em background e NÃO espera
+        (
+            chown -R aluno:aluno /opt/flutter /opt/nand2tetris /opt/VMs 2>/dev/null || true
+        ) &
+        disown
 
-log "links simbólicos configurados"
+        log "PATHs configurados"
 
-# =====================================================================
-# 6) Remove o aluno do sudo
-# =====================================================================
-deluser aluno sudo 2>/dev/null || true
-gpasswd -d aluno sudo 2>/dev/null || true
-rm -f /etc/sudoers.d/aluno-ssh
+        # -------------------------------------------------------------
+        # 5) Links simbólicos
+        # -------------------------------------------------------------
+        mkdir -p /home/aluno/Unity/Hub 2>/dev/null
+        ln -sf /opt/Unity /home/aluno/Unity/Hub/Editor 2>/dev/null
+        ln -sf /opt/gradle /home/aluno/.gradle 2>/dev/null
+        ln -sf /opt/npm /home/aluno/.npm 2>/dev/null
+        ln -sf /opt/VMs /home/aluno/VirtualBox 2>/dev/null
+        ln -sf /opt/nand2tetris /home/aluno/nand2tetris 2>/dev/null
 
-log "aluno removido do sudo"
+        log "links simbólicos configurados"
 
-# =====================================================================
-# 7) MySQL
-# =====================================================================
-echo "DROP USER IF EXISTS 'aluno'@'localhost'; CREATE USER 'aluno'@'%' IDENTIFIED BY 'aluno'; GRANT ALL PRIVILEGES ON *.* TO 'aluno'@'%'; FLUSH PRIVILEGES;" | mysql -u root 2>/dev/null || true
+        # -------------------------------------------------------------
+        # 6) Remove o aluno do sudo
+        # -------------------------------------------------------------
+        deluser aluno sudo 2>/dev/null || true
+        gpasswd -d aluno sudo 2>/dev/null || true
+        rm -f /etc/sudoers.d/aluno-ssh 2>/dev/null
 
-# =====================================================================
-# 8) PostgreSQL
-# =====================================================================
-sudo -u postgres psql -c "DROP DATABASE IF EXISTS aluno;" 2>/dev/null || true
-sudo -u postgres psql -c "DROP USER IF EXISTS aluno;" 2>/dev/null || true
-sudo -u postgres psql -c "CREATE USER aluno WITH PASSWORD 'aluno';" 2>/dev/null || true
-sudo -u postgres psql -c "ALTER USER aluno WITH SUPERUSER;" 2>/dev/null || true
-sudo -u postgres psql -c "CREATE DATABASE aluno OWNER aluno;" 2>/dev/null || true
+        log "aluno removido do sudo"
 
-sudo sed -i "s/local\s*all\s*postgres\s*peer/local all postgres md5/" /etc/postgresql/*/main/pg_hba.conf 2>/dev/null || true
-sudo sed -i "s/local\s*all\s*all\s*peer/local all all md5/" /etc/postgresql/*/main/pg_hba.conf 2>/dev/null || true
-sudo systemctl restart postgresql 2>/dev/null || true
+        # -------------------------------------------------------------
+        # 7) MySQL (com timeout)
+        # -------------------------------------------------------------
+        echo "DROP USER IF EXISTS \x27aluno\x27@\x27localhost\x27; CREATE USER \x27aluno\x27@\x27%\x27 IDENTIFIED BY \x27aluno\x27; GRANT ALL PRIVILEGES ON *.* TO \x27aluno\x27@\x27%\x27; FLUSH PRIVILEGES;" | timeout 10 mysql -u root 2>/dev/null || true
 
-log "bancos configurados"
+        # -------------------------------------------------------------
+        # 8) PostgreSQL (com timeout)
+        # -------------------------------------------------------------
+        timeout 5 sudo -u postgres psql -c "DROP DATABASE IF EXISTS aluno;" 2>/dev/null || true
+        timeout 5 sudo -u postgres psql -c "DROP USER IF EXISTS aluno;" 2>/dev/null || true
+        timeout 5 sudo -u postgres psql -c "CREATE USER aluno WITH PASSWORD \x27aluno\x27;" 2>/dev/null || true
+        timeout 5 sudo -u postgres psql -c "ALTER USER aluno WITH SUPERUSER;" 2>/dev/null || true
+        timeout 5 sudo -u postgres psql -c "CREATE DATABASE aluno OWNER aluno;" 2>/dev/null || true
 
-# =====================================================================
-# 9) Inventário
-# =====================================================================
-inventory_path="/etc/gdm3/PostLogin/inventory_script-master"
-inventory_url='https://inventario.app.ic.ufba.br/inventory'
+        timeout 5 sudo sed -i "s/local\s*all\s*postgres\s*peer/local all postgres md5/" /etc/postgresql/*/main/pg_hba.conf 2>/dev/null || true
+        timeout 5 sudo sed -i "s/local\s*all\s*all\s*peer/local all all md5/" /etc/postgresql/*/main/pg_hba.conf 2>/dev/null || true
+        timeout 5 sudo systemctl restart postgresql 2>/dev/null || true
 
-if [ -f "$inventory_path/src/inventory.py" ]; then
-    python3 "$inventory_path/src/inventory.py" "$inventory_url" &> /var/log/inventory.log || true
-fi
+        log "bancos configurados"
 
-# =====================================================================
-# 10) Roda o lab-startup em background
-# =====================================================================
-nohup /usr/local/sbin/lab-startup.sh > /var/log/lab-startup-postlogin.log 2>&1 &
+        # -------------------------------------------------------------
+        # 9) Inventário (com timeout)
+        # -------------------------------------------------------------
+        inventory_path="/etc/gdm3/PostLogin/inventory_script-master"
+        inventory_url="https://inventario.app.ic.ufba.br/inventory"
 
-log "concluído"
+        if [ -f "$inventory_path/src/inventory.py" ]; then
+            timeout 30 python3 "$inventory_path/src/inventory.py" "$inventory_url" &> /var/log/inventory.log || true
+        fi
+
+        # -------------------------------------------------------------
+        # 10) Roda o lab-startup em background
+        # -------------------------------------------------------------
+        nohup /usr/local/sbin/lab-startup.sh > /var/log/lab-startup-postlogin.log 2>&1 &
+
+        log "concluído"
+    ' >> "$LOG" 2>&1
+) &
+
+# ⭐ O script principal SAI IMEDIATAMENTE
+# O GDM não espera o background
 exit 0
