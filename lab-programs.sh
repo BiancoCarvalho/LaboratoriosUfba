@@ -1,30 +1,12 @@
 #!/bin/bash
-# =====================================================================
-#  lab-programs.sh
-#  v4.1.0
-#
-#  Mudanças em relação à versão anterior (v4.0.0):
-#    - Adiciona bloco 1.1: instala gnome-control-center + network-manager-gnome
-#      (corrige pop-up de configurações de rede que não abria)
-#    - Adiciona espera de lock do apt no início (evita "Waiting for cache lock")
-#    - Verificação de pacotes com dpkg-query (evita falso-positivo com -data)
-# =====================================================================
 
 export DEBIAN_FRONTEND=noninteractive
-
-LOG="/var/log/lab-programs.log"
-exec >> "$LOG" 2>&1
-
-echo ""
-echo "[$(date '+%F %T')] ==============================================="
-echo "[$(date '+%F %T')] LAB-PROGRAMS INICIADO"
-echo "[$(date '+%F %T')] ==============================================="
 
 # =====================================================================
 # Funcao para verificar instalacao
 # =====================================================================
 check_install() {
-    if command -v "$1" &>/dev/null; then
+    if command -v $1 &>/dev/null; then
         echo "[SUCESSO] $1 instalado corretamente"
         return 0
     else
@@ -34,66 +16,8 @@ check_install() {
 }
 
 # =====================================================================
-# Funcao para aguardar lock do apt (ate 5 minutos)
-# =====================================================================
-wait_apt_lock() {
-    local waited=0
-    while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
-        if [ $waited -eq 0 ]; then
-            echo "  ⏳ Aguardando lock do apt liberar..."
-        fi
-        sleep 10
-        waited=$((waited + 10))
-        if [ $waited -ge 300 ]; then
-            echo "  ⚠️  Lock do apt ainda preso após 5 min. Prosseguindo mesmo assim."
-            return 1
-        fi
-    done
-    if [ $waited -gt 0 ]; then
-        echo "  ✅ Lock do apt liberado (aguardou ${waited}s)"
-    fi
-    return 0
-}
-
-# =====================================================================
-# FIX DE AMBIENTE — RODA UMA VEZ
-# =====================================================================
-FIX_ENV_FLAG="/usr/local/sbin/.fix-ambiente-done"
-
-if [ ! -f "$FIX_ENV_FLAG" ]; then
-    echo ""
-    echo "=================================================="
-    echo "  FIX DE AMBIENTE (uma vez)"
-    echo "=================================================="
-
-    if [ -f /run/lab-block.args ]; then
-        echo "  ⚠️  Reserva ativa — adiando fix para o próximo boot"
-    else
-        wait_apt_lock
-
-        echo "  → Removendo repositórios duplicados..."
-        rm -f /etc/apt/sources.list.d/vscode.list
-
-        echo "  → Removendo PPA do SWI-Prolog (se existir)..."
-        add-apt-repository -r -y ppa:swi-prolog/stable 2>/dev/null || true
-        rm -f /etc/apt/sources.list.d/swi-prolog* 2>/dev/null
-        rm -f /etc/apt/trusted.gpg.d/*swi-prolog* 2>/dev/null
-
-        echo "  → Corrigindo APT..."
-        apt --fix-broken install -y 2>&1 | tail -3
-        apt autoremove -y 2>&1 | tail -3
-        apt clean
-        apt update 2>&1 | tail -3
-
-        touch "$FIX_ENV_FLAG"
-        echo "  ✅ Fix de ambiente concluído — flag: $FIX_ENV_FLAG"
-    fi
-fi
-
-# =====================================================================
 # 0) Bloquear modulo algif_aead
 # =====================================================================
-echo ""
 echo "Configurando bloqueio do modulo algif_aead..."
 CONF="/etc/modprobe.d/manual-disable-algif_aead.conf"
 if ! grep -q "algif_aead" "$CONF" 2>/dev/null; then
@@ -111,7 +35,6 @@ rmmod algif_aead 2>/dev/null || true
 # =====================================================================
 if ! dpkg -l | grep -q ubuntu-release-upgrader-gtk; then
     echo "→ Corrigindo possiveis problemas no release upgrader..."
-    wait_apt_lock
     apt-get update -y
     apt-get install --reinstall -y ubuntu-release-upgrader-core ubuntu-release-upgrader-gtk python3-apt
     apt --fix-broken install -y
@@ -127,7 +50,6 @@ gsettings set com.ubuntu.update-notifier auto-launch false 2>/dev/null || true
 systemctl disable --now apt-daily.service apt-daily.timer apt-daily-upgrade.timer apt-daily-upgrade.service 2>/dev/null || true
 
 if ! command -v curl &>/dev/null || ! command -v wget &>/dev/null; then
-    wait_apt_lock
     apt-get update -y
     apt-get install -y software-properties-common apt-transport-https ca-certificates curl wget gnupg
 else
@@ -135,40 +57,10 @@ else
 fi
 
 # =====================================================================
-# 1.1) GNOME Control Center + nm-applet
-#      Corrige o pop-up de configurações de rede (IPv4/IPv6) que
-#      não abria por falta do pacote principal gnome-control-center.
-# =====================================================================
-echo ""
-echo "=================================================="
-echo "  GNOME Control Center + nm-applet"
-echo "=================================================="
-
-if ! dpkg-query -W -f='${Status}' gnome-control-center 2>/dev/null | grep -q "install ok installed"; then
-    echo "→ Instalando gnome-control-center..."
-    wait_apt_lock
-    apt-get update -y
-    apt-get install -y gnome-control-center
-    check_install gnome-control-center
-else
-    echo "✅ gnome-control-center já instalado. Pulando."
-fi
-
-if ! dpkg-query -W -f='${Status}' network-manager-gnome 2>/dev/null | grep -q "install ok installed"; then
-    echo "→ Instalando network-manager-gnome (nm-applet)..."
-    wait_apt_lock
-    apt-get install -y network-manager-gnome
-    check_install nm-applet
-else
-    echo "✅ network-manager-gnome já instalado. Pulando."
-fi
-
-# =====================================================================
 # 2) Quarto
 # =====================================================================
 if ! command -v quarto &>/dev/null; then
     echo "→ Instalando Quarto..."
-    wait_apt_lock
     QUARTO_VERSION="1.11.3"
     QUARTO_URL="https://github.com/quarto-dev/quarto-cli/releases/download/v${QUARTO_VERSION}/quarto-${QUARTO_VERSION}-linux-amd64.deb"
     wget -O /tmp/quarto.deb "$QUARTO_URL"
@@ -184,7 +76,6 @@ fi
 # =====================================================================
 if ! command -v ipset >/dev/null 2>&1; then
     echo "→ Instalando ipset..."
-    wait_apt_lock
     apt-get install -y ipset
 else
     echo "✅ ipset já instalado. Pulando."
@@ -194,7 +85,6 @@ fi
 # 3) Atualizacao do sistema
 # =====================================================================
 echo "→ Atualizando sistema..."
-wait_apt_lock
 apt-get update -y
 apt-get upgrade -y
 apt-get autoremove -y
@@ -205,7 +95,6 @@ apt-get install -f -y
 # =====================================================================
 if ! dpkg -l | grep -q openssh-server; then
     echo "→ Instalando SSH..."
-    wait_apt_lock
     apt-get install -y openssh-server
     systemctl enable ssh 2>/dev/null
     systemctl start ssh 2>/dev/null
@@ -228,7 +117,6 @@ fi
 # =====================================================================
 if ! command -v clamscan &>/dev/null; then
     echo "→ Instalando ClamAV e ClamTK..."
-    wait_apt_lock
     apt-get install -y clamav clamtk
     timeout 300 freshclam 2>/dev/null || true
     check_install clamscan
@@ -237,7 +125,6 @@ else
 fi
 if ! dpkg -l | grep -q clamtk; then
     echo "→ Instalando ClamTK..."
-    wait_apt_lock
     apt-get install -y clamtk
 fi
 
@@ -247,7 +134,6 @@ fi
 echo "→ Verificando Termius..."
 if dpkg -l | grep -q termius-app; then
     echo "→ Removendo Termius..."
-    wait_apt_lock
     apt-get purge -y termius-app
     apt-get autoremove -y
 else
@@ -269,7 +155,7 @@ else
 fi
 
 # =====================================================================
-# 8) Docker
+# 8) Docker (verifica binario + grupo)
 # =====================================================================
 USERNAME=${SUDO_USER:-$USER}
 DOCKER_OK=false
@@ -281,7 +167,6 @@ fi
 
 if [ "$DOCKER_OK" = "false" ]; then
     echo "→ Instalando/configurando Docker..."
-    wait_apt_lock
     apt-get install -y ca-certificates curl gnupg lsb-release
     mkdir -p /etc/apt/keyrings
     if [ ! -f /etc/apt/keyrings/docker.gpg ]; then
@@ -301,7 +186,6 @@ fi
 # =====================================================================
 if ! command -v avra &>/dev/null; then
     echo "→ Instalando AVRA 1.3.0..."
-    wait_apt_lock
     apt-get install -y build-essential wget bzip2
     rm -rf /tmp/avra-*
     cd /tmp
@@ -339,7 +223,6 @@ fi
 # =====================================================================
 if ! command -v subl &>/dev/null; then
     echo "→ Instalando Sublime Text..."
-    wait_apt_lock
     curl -fsSL https://download.sublimetext.com/sublimehq-pub.gpg | gpg --dearmor -o /usr/share/keyrings/sublime-text-archive-keyring.gpg
     echo "deb [signed-by=/usr/share/keyrings/sublime-text-archive-keyring.gpg] https://download.sublimetext.com/ apt/stable/" | tee /etc/apt/sources.list.d/sublime-text.list
     apt-get update -y
@@ -354,7 +237,6 @@ fi
 # =====================================================================
 if ! command -v neofetch &>/dev/null; then
     echo "→ Instalando Neofetch..."
-    wait_apt_lock
     apt-get install -y neofetch
     check_install neofetch
 else
@@ -366,7 +248,6 @@ fi
 # =====================================================================
 if ! command -v code &>/dev/null; then
     echo "→ Instalando Visual Studio Code..."
-    wait_apt_lock
     wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > packages.microsoft.gpg
     install -D -o root -g root -m 644 packages.microsoft.gpg /etc/apt/keyrings/packages.microsoft.gpg
     echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list
@@ -383,7 +264,6 @@ fi
 # =====================================================================
 if ! command -v obs &>/dev/null; then
     echo "→ Instalando OBS Studio..."
-    wait_apt_lock
     add-apt-repository -y ppa:obsproject/obs-studio
     apt-get update -y
     apt-get install -y obs-studio
@@ -394,7 +274,6 @@ fi
 
 if ! dkms status 2>/dev/null | grep -q v4l2loopback; then
     echo "→ Instalando v4l2loopback..."
-    wait_apt_lock
     apt-get purge -y v4l2loopback-dkms v4l2loopback-utils 2>/dev/null || true
     rm -f /var/crash/v4l2loopback-dkms.*.crash
     apt-get install -y git dkms build-essential linux-headers-$(uname -r)
@@ -418,7 +297,6 @@ fi
 # =====================================================================
 if ! command -v nasm &>/dev/null || ! command -v racket &>/dev/null || ! command -v mysql &>/dev/null; then
     echo "→ Instalando pacotes essenciais..."
-    wait_apt_lock
     apt-get install -y \
         python3-pip default-jre default-jdk maven racket elixir clisp nasm gcc-multilib \
         python3.11-full python3.10-venv \
@@ -435,7 +313,6 @@ fi
 # =====================================================================
 if ! command -v octave &>/dev/null; then
     echo "→ Instalando GNU Octave..."
-    wait_apt_lock
     apt-get install -y octave
     check_install octave
 else
@@ -465,7 +342,6 @@ fi
 # =====================================================================
 if ! command -v swipl &>/dev/null; then
     echo "→ Instalando SWI-Prolog..."
-    wait_apt_lock
     if ls /etc/apt/sources.list.d/*swi-prolog* 2>/dev/null; then
         add-apt-repository -r -y ppa:swi-prolog/stable 2>/dev/null || true
         rm -f /etc/apt/sources.list.d/*swi-prolog* 2>/dev/null
@@ -481,11 +357,10 @@ else
 fi
 
 # =====================================================================
-# 19) PostgreSQL 17
+# 19) PostgreSQL 17 (verifica versao especifica)
 # =====================================================================
 if ! dpkg -l | grep -q postgresql-17; then
     echo "→ Instalando PostgreSQL 17..."
-    wait_apt_lock
     echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list
     wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - 2>/dev/null || true
     apt-get update -y
@@ -502,7 +377,6 @@ fi
 # =====================================================================
 if ! dpkg -l | grep -q pgadmin4; then
     echo "→ Instalando pgAdmin..."
-    wait_apt_lock
     curl -fsS https://www.pgadmin.org/static/packages_pgadmin_org.pub | gpg --dearmor -o /usr/share/keyrings/packages-pgadmin-org.gpg
     echo "deb [signed-by=/usr/share/keyrings/packages-pgadmin-org.gpg] https://ftp.postgresql.org/pub/pgadmin/pgadmin4/apt/$(lsb_release -cs) pgadmin4 main" > /etc/apt/sources.list.d/pgadmin4.list
     apt-get update -y
@@ -528,7 +402,6 @@ fi
 if ! snap list 2>/dev/null | grep -q netbeans; then
     echo "→ Instalando NetBeans..."
     if ! dpkg -l | grep -q openjdk-17-jdk; then
-        wait_apt_lock
         apt-get install -y openjdk-17-jdk
     fi
     snap install netbeans --classic
@@ -553,7 +426,6 @@ fi
 # =====================================================================
 if [ ! -f /usr/local/bin/simulide ]; then
     echo "→ Instalando SimulIDE..."
-    wait_apt_lock
     apt-get install -y fuse libfuse2 libqt5core5a libqt5gui5 libqt5widgets5 libqt5network5 libqt5svg5 qtbase5-dev qttools5-dev-tools libqt5serialport5 libqt5serialport5-dev
     cd /opt
     for URL in \
@@ -591,7 +463,6 @@ fi
 # =====================================================================
 if ! command -v wine &>/dev/null; then
     echo "→ Instalando Wine..."
-    wait_apt_lock
     apt-get install -y wine
     check_install wine
 else
@@ -603,7 +474,6 @@ fi
 # =====================================================================
 if [ ! -f /etc/mongod.conf ]; then
     echo "→ Instalando MongoDB..."
-    wait_apt_lock
     curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | gpg -o /usr/share/keyrings/mongodb-server-7.0.gpg --dearmor
     echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-7.0.list
     apt-get update -y
@@ -620,7 +490,6 @@ fi
 # =====================================================================
 if ! command -v R &>/dev/null; then
     echo "→ Instalando R..."
-    wait_apt_lock
     apt-get install -y --no-install-recommends software-properties-common dirmngr gdebi-core
     wget -qO- https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc | tee -a /etc/apt/trusted.gpg.d/cran_ubuntu_key.asc
     add-apt-repository "deb https://cloud.r-project.org/bin/linux/ubuntu $(lsb_release -cs)-cran40/"
@@ -646,7 +515,6 @@ fi
 # =====================================================================
 if ! command -v node &>/dev/null; then
     echo "→ Instalando Node.js..."
-    wait_apt_lock
     mkdir -p /etc/apt/keyrings
     curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
     echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list
@@ -665,7 +533,6 @@ fi
 # =====================================================================
 if [ ! -f /usr/bin/python3.10 ] || [ ! -f /usr/bin/python3.11 ]; then
     echo "→ Configurando Python..."
-    wait_apt_lock
     update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
     update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 2
     apt-get install -y python3.10-venv python3.11-venv
@@ -736,7 +603,6 @@ fi
 # =====================================================================
 if ! command -v google-chrome &>/dev/null; then
     echo "→ Instalando Google Chrome..."
-    wait_apt_lock
     wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb
     dpkg -i /tmp/chrome.deb || apt-get -f install -y
     rm /tmp/chrome.deb
@@ -777,7 +643,6 @@ fi
 # =====================================================================
 if ! command -v unityhub &>/dev/null; then
     echo "→ Instalando Unity Hub..."
-    wait_apt_lock
     add-apt-repository -y ppa:dotnet/backports
     wget -qO - https://hub.unity3d.com/linux/keys/public | gpg --dearmor | tee /usr/share/keyrings/Unity_Technologies_ApS.gpg > /dev/null
     echo "deb [signed-by=/usr/share/keyrings/Unity_Technologies_ApS.gpg] https://hub.unity3d.com/linux/repos/deb stable main" > /etc/apt/sources.list.d/unityhub.list
@@ -793,7 +658,6 @@ fi
 # =====================================================================
 if ! dpkg -l | grep -q frame0; then
     echo "→ Instalando Frame0..."
-    wait_apt_lock
     wget https://files.frame0.app/releases/linux/x64/frame0_1.0.0~beta.8_amd64.deb -O /tmp/frame0.deb
     dpkg -i /tmp/frame0.deb || apt-get -f install -y
     rm /tmp/frame0.deb
@@ -803,78 +667,58 @@ else
 fi
 
 # =====================================================================
-# 38) Firefox (.deb) — BLOCO ISOLADO COM FLAG
+# 38) Firefox (.deb) — NO FINAL
 # =====================================================================
-FIX_FIREFOX_FLAG="/usr/local/sbin/.fix-firefox-done"
+echo "→ Verificando Firefox (.deb)..."
 
-if [ ! -f "$FIX_FIREFOX_FLAG" ]; then
-    echo ""
-    echo "=================================================="
-    echo "  FIX DO FIREFOX (snap → .deb) — uma vez"
-    echo "=================================================="
+# Se já é .deb (ELF), pula
+if file /usr/bin/firefox 2>/dev/null | grep -q "ELF"; then
+    echo "✅ Firefox .deb já instalado. Pulando."
+else
+    echo "→ Instalando Firefox (.deb)..."
 
-    if [ -f /run/lab-block.args ]; then
-        echo "  ⚠️  Reserva ativa — adiando fix para o próximo boot"
-    else
-        if file /usr/bin/firefox 2>/dev/null | grep -q "ELF"; then
-            echo "  ✅ Firefox já é .deb. Marcando flag."
-            touch "$FIX_FIREFOX_FLAG"
-        else
-            echo "  → Convertendo Firefox snap → .deb..."
-            wait_apt_lock
+    # 1. Remove o Snap (se existir)
+    if snap list 2>/dev/null | grep -q firefox; then
+        echo "→ Removendo Firefox Snap..."
+        snap remove firefox 2>/dev/null || true
+        sleep 2
+    fi
 
-            if snap list 2>/dev/null | grep -q firefox; then
-                echo "    - Removendo snap..."
-                snap remove firefox 2>/dev/null || true
-                sleep 2
-            fi
+    # 2. Remove o pacote wrapper do apt
+    if dpkg -l | grep -q "^ii  firefox"; then
+        apt remove -y firefox 2>/dev/null || true
+        apt autoremove -y 2>/dev/null || true
+    fi
 
-            rm -rf /snap/firefox 2>/dev/null
-            rm -rf /var/snap/firefox 2>/dev/null
-
-            if dpkg -l | grep -q "^ii  firefox"; then
-                apt remove -y firefox 2>/dev/null || true
-                apt autoremove -y 2>/dev/null || true
-            fi
-
-            mkdir -p /etc/apt/preferences.d
-            cat > /etc/apt/preferences.d/firefox-no-snap <<'EOF'
+    # 3. Bloqueia reinstalacao do snap
+    mkdir -p /etc/apt/preferences.d
+    cat > /etc/apt/preferences.d/firefox-no-snap <<'EOF'
 Package: firefox*
 Pin: release o=Ubuntu*
 Pin-Priority: -1
 EOF
 
-            add-apt-repository -y ppa:mozillateam/ppa 2>/dev/null
-            apt-get update -y
+    # 4. Adiciona o PPA da Mozilla
+    add-apt-repository -y ppa:mozillateam/ppa 2>/dev/null
+    apt-get update -y
 
-            cat > /etc/apt/preferences.d/mozilla-firefox <<'EOF'
+    # 5. Prioriza o PPA
+    cat > /etc/apt/preferences.d/mozilla-firefox <<'EOF'
 Package: firefox*
 Pin: release o=LP-PPA-mozillateam
 Pin-Priority: 1001
 EOF
 
-            DEBIAN_FRONTEND=noninteractive apt-get install -y firefox --allow-downgrades
+    # 6. Instala o .deb
+    DEBIAN_FRONTEND=noninteractive apt-get install -y firefox --allow-downgrades
 
-            if file /usr/bin/firefox 2>/dev/null | grep -q "ELF"; then
-                echo "    ✅ Firefox .deb instalado"
-                touch "$FIX_FIREFOX_FLAG"
-            else
-                echo "    ⚠️  Firefox ainda é wrapper (snap). Não marcando flag para tentar de novo."
-            fi
-        fi
+    # 7. Valida
+    if file /usr/bin/firefox 2>/dev/null | grep -q "ELF"; then
+        echo "[SUCESSO] Firefox .deb instalado"
+    else
+        echo "[AVISO] Firefox ainda e wrapper (snap)"
     fi
-fi
-
-# =====================================================================
-# 39) Reaplica bloqueio se houver reserva ativa
-# =====================================================================
-if [ -f /run/lab-block.args ]; then
-    ARGS="$(cat /run/lab-block.args)"
-    echo ""
-    echo "[39] Reaplicando bloqueio: $ARGS"
-    if [ -x /usr/local/sbin/lab-block.sh ]; then
-        /usr/local/sbin/lab-block.sh "$ARGS"
-    fi
+    check_install firefox
 fi
 
 # =====================================================================
@@ -883,7 +727,6 @@ fi
 echo ""
 echo "=================================================="
 echo " INSTALACAO CONCLUIDA"
-echo " $(date '+%F %T')"
 echo "=================================================="
 
 exit 0
