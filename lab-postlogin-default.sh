@@ -1,18 +1,17 @@
 #!/bin/bash
 # =====================================================================
 #  lab-postlogin-default.sh
-#  v6.0.0
+#  v6.1.0
 #
 #  Copiado para /etc/gdm3/PostLogin/Default pelo lab-startup.sh
 #  Roda A CADA LOGIN do aluno.
 #
-#  Mudanças em relação à v5.0.0:
-#    - ⭐ FALLBACK SEGURO: se visudo falhar, REMOVE o arquivo
-#      (antes aplicava NOPASSWD: ALL, abrindo tudo)
-#    - ⭐ Adiciona os 4 comandos que faltavam:
-#      lab-block-status.sh, lab-ipset-update.sh,
-#      lab-block-terminal.sh, lab-unblock-terminal.sh
-#    - ⭐ Linha em branco no final (evita erro do visudo)
+#  Mudanças em relação à v6.0.0:
+#    - ⭐ Adiciona "Defaults:aluno !requiretty"
+#      (sem isso, o sudo via SSH não-interativo falha com "must have a tty")
+#    - ⭐ Remove o aluno do grupo 'sudo'
+#      (sem isso, o sudo aplica "%sudo ALL=(ALL:ALL) ALL" que pede senha
+#       e o C# não consegue aplicar o bloqueio)
 # =====================================================================
 
 if [[ "$USER" == "aluno" ]]; then
@@ -57,13 +56,13 @@ if [[ "$USER" == "aluno" ]]; then
     ln -sf /opt/nand2tetris /home/$USER/nand2tetris
 
     # =====================================================================
-    # SUDOERS RESTRITO — v6.0.0
-    # ⭐ Comandos específicos do ServidorLab
+    # SUDOERS RESTRITO — v6.1.0
     # =====================================================================
     rm -f /etc/sudoers.d/aluno-ssh
 
     cat > /etc/sudoers.d/aluno-ssh <<'EOF'
 # aluno - permite apenas comandos especificos do ServidorLab
+Defaults:aluno !requiretty
 aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block.sh
 aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block-sites.sh
 aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-unblock.sh
@@ -74,17 +73,29 @@ aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-unblock-terminal.sh
 aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-prova-install.sh
 EOF
 
-    # ⭐ Linha em branco no final (evita erro do visudo)
+    # Linha em branco no final (evita erro do visudo)
     echo "" >> /etc/sudoers.d/aluno-ssh
 
     chmod 440 /etc/sudoers.d/aluno-ssh
     chown root:root /etc/sudoers.d/aluno-ssh
 
     # ⭐ FALLBACK SEGURO: se visudo falhar, REMOVE o arquivo
-    #    (antes aplicava NOPASSWD: ALL, abrindo tudo)
     if ! visudo -cf /etc/sudoers.d/aluno-ssh >/dev/null 2>&1; then
         echo "[$(date '+%F %T')] ERRO: sudoers aluno-ssh inválido. Removendo." >> /var/log/lab.log
         rm -f /etc/sudoers.d/aluno-ssh
+    fi
+
+    # =====================================================================
+    # ⭐ v6.1.0: REMOVE o aluno do grupo 'sudo'
+    #    Motivo: o /etc/sudoers tem a linha
+    #      %sudo   ALL=(ALL:ALL) ALL
+    #    Se o aluno está no grupo sudo, ele pode rodar QUALQUER comando
+    #    (com senha). Isso faz o sudo pedir senha no SSH não-interativo
+    #    e o lab-block.sh falha.
+    # =====================================================================
+    if groups aluno 2>/dev/null | grep -q '\bsudo\b'; then
+        deluser aluno sudo 2>/dev/null || true
+        echo "[$(date '+%F %T')] aluno removido do grupo sudo" >> /var/log/lab.log
     fi
 
     # -----------------------------------------------------------------
