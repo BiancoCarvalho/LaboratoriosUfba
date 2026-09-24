@@ -1,9 +1,17 @@
 #!/bin/bash
 # =====================================================================
 #  lab-block-terminal.sh
-#  v1.0.0
+#  v1.1.0
 #
 #  Bloqueia o terminal para o usuário 'aluno' (não afeta 'nati').
+#
+#  O que faz:
+#    1. Cria grupo 'terminal-users' (nati + root)
+#    2. Bloqueia binários dos terminais (chmod 750)
+#    3. Remove atalhos do GNOME
+#    4. Bloqueia troca de TTY
+#    5. Esconde terminais do menu
+#    6. Mata terminais e processos abertos do aluno
 #
 #  Localização: /usr/local/sbin/lab-block-terminal.sh
 # =====================================================================
@@ -20,14 +28,13 @@ log() {
 log "iniciado"
 
 # =========================================================
-# 1. Cria grupo (se não existir)
+# 1. Cria grupo
 # =========================================================
 if ! getent group "$GRUPO" >/dev/null 2>&1; then
     groupadd "$GRUPO"
     log "grupo $GRUPO criado"
 fi
 
-# Adiciona 'nati' e 'root' ao grupo
 for u in nati root; do
     if id "$u" &>/dev/null; then
         usermod -aG "$GRUPO" "$u" 2>/dev/null || true
@@ -109,6 +116,34 @@ do
 done
 log "menus atualizados"
 
-log "concluído — $BLOQUEADOS terminais bloqueados"
-echo "✅ Terminal bloqueado ($BLOQUEADOS binários)"
+# =========================================================
+# 6. Mata terminais e processos do aluno (NOVO)
+# =========================================================
+log "matando processos do aluno"
+MORTOS=0
+
+for pid in $(pgrep -u aluno 2>/dev/null); do
+    proc_name=$(ps -p "$pid" -o comm= 2>/dev/null)
+
+    # Essenciais que NÃO devem morrer
+    case "$proc_name" in
+        gnome-shell|gnome-session-binary|gnome-session|Xorg|Xwayland|dbus-daemon|dbus-launch|gdm-session-worker)
+            continue
+            ;;
+        firefox|firefox-esr|firefox-bin)
+            continue
+            ;;
+    esac
+
+    kill -KILL "$pid" 2>/dev/null || true
+    MORTOS=$((MORTOS + 1))
+done
+
+log "$MORTOS processos do aluno mortos"
+
+# =========================================================
+# Finalização
+# =========================================================
+log "concluído — $BLOQUEADOS terminais bloqueados, $MORTOS processos mortos"
+echo "✅ Terminal bloqueado ($BLOQUEADOS binários, $MORTOS processos mortos)"
 exit 0
