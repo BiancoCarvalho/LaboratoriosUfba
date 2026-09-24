@@ -1,19 +1,17 @@
 #!/bin/bash
 # =====================================================================
 #  lab-admin-profile-config.sh
-#  v3.2.0
+#  v4.0.0
 #
-#  Cria/configura o usuário administrador 'nati'.
-#
-#  Mudanças em relação à v3.1.0:
-#    - ⭐ Adiciona Defaults:nati !requiretty (para SSH não-interativo)
-#    - ⭐ Adiciona TODOS os comandos do lab ao sudoers do nati
-#    - ⭐ Adiciona lab-startup.sh ao sudoers
-#    - ⭐ Fallback SEGURO (remove, não abre NOPASSWD: ALL)
-#    - ⭐ Remove o aluno do sudo (modelo mais seguro)
+#  Mudanças em relação à v3.2.0:
+#    - ⭐ set -euo pipefail (aborta em erro)
+#    - ⭐ Escrita atômica de arquivos (mv em vez de >)
+#    - ⭐ Validação após cada etapa
+#    - ⭐ Verifica permissões do .ssh e authorized_keys
+#    - ⭐ Log estruturado
 # =====================================================================
 
-set -u
+set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 
@@ -27,63 +25,132 @@ log() {
     echo "[$(date '+%F %T')] host=$(hostname) ADMIN-PROFILE: $*" >> "$LOG"
 }
 
+erro() {
+    echo "[$(date '+%F %T')] host=$(hostname) ADMIN-PROFILE ERRO: $*" >> "$LOG"
+    echo "ERRO: $*" >&2
+}
+
+# ---------------------------------------------------------------------
+# Função helper: escreve arquivo de forma ATÔMICA e valida
+# ---------------------------------------------------------------------
+escrever_atomico() {
+    local destino="$1"
+    local conteudo="$2"
+    local validador="$3"  # string que DEVE estar no arquivo
+
+    local tmp="/tmp/.atomic-$$"
+
+    # Escreve no temporário
+    printf '%s\n' "$conteudo" > "$tmp"
+
+    # Valida o temporário
+    if ! grep -qF "$validador" "$tmp"; then
+        erro "conteúdo não contém '$validador' no temporário"
+        rm -f "$tmp"
+        return 1
+    fi
+
+    # Move (atômico) para o destino
+    mv "$tmp" "$destino"
+
+    # Valida o destino
+    if ! grep -qF "$validador" "$destino"; then
+        erro "conteúdo não contém '$validador' no destino"
+        return 1
+    fi
+
+    return 0
+}
+
+# ---------------------------------------------------------------------
+# Função helper: aplica permissões e VERIFICA
+# ---------------------------------------------------------------------
+aplicar_permissoes() {
+    local arquivo="$1"
+    local perm="$2"
+    local dono="$3"
+
+    chmod "$perm" "$arquivo" || { erro "chmod $perm em $arquivo"; return 1; }
+    chown "$dono" "$arquivo" || { erro "chown $dono em $arquivo"; return 1; }
+
+    # Verifica
+    local perm_real=$(stat -c%a "$arquivo")
+    local dono_real=$(stat -c%U "$arquivo")
+
+    if [ "$perm_real" != "$perm" ]; then
+        erro "$arquivo: permissão $perm_real, esperado $perm"
+        return 1
+    fi
+
+    if [ "$dono_real" != "${dono%:*}" ]; then
+        erro "$arquivo: dono $dono_real, esperado ${dono%:*}"
+        return 1
+    fi
+
+    return 0
+}
+
 log "iniciado"
 
 # ---------------------------------------------------------------------
 # 1) Cria o usuário SOMENTE se não existir
 # ---------------------------------------------------------------------
 if id "$USUARIO" &>/dev/null; then
-    log "usuário $USUARIO já existe - pulando recriação"
+    log "usuário $USUARIO já existe"
 else
     log "criando usuário $USUARIO..."
-
-    if ! useradd --create-home --shell /bin/bash "$USUARIO"; then
-        log "ERRO: falha ao criar usuário $USUARIO"
-        exit 1
-    fi
-
+    useradd --create-home --shell /bin/bash "$USUARIO" || { erro "falha ao criar $USUARIO"; exit 1; }
     log "usuário $USUARIO criado"
 fi
 
-# Garante senha correta
-if ! echo "$USUARIO:$SENHA" | chpasswd; then
-    log "ERRO: falha ao definir senha de $USUARIO"
-    exit 1
-fi
+# Garante senha
+echo "$USUARIO:$SENHA" | chpasswd || { erro "falha ao definir senha"; exit 1; }
 
 # Garante grupo sudo
 usermod -aG sudo "$USUARIO" 2>/dev/null || true
 
 # ---------------------------------------------------------------------
-# 2) Chave pública SSH (para o C# conectar como nati)
+# 2) Chave SSH do nati — ATÔMICO e VALIDADO
 # ---------------------------------------------------------------------
-mkdir -p "/home/$USUARIO/.ssh"
-chmod 700 "/home/$USUARIO/.ssh"
-chown "$USUARIO:$USUARIO" "/home/$USUARIO/.ssh"
+log "configurando chave SSH do $USUARIO"
 
-echo "$CHAVE_PUBLICA" > "/home/$USUARIO/.ssh/authorized_keys"
-chmod 600 "/home/$USUARIO/.ssh/authorized_keys"
-chown "$USUARIO:$USUARIO" "/home/$USUARIO/.ssh/authorized_keys"
+mkdir -p "/home/$USUARIO/.ssh"
+aplicar_permissoes "/home/$USUARIO/.ssh" "700" "$USUARIO:$USUARIO" || exit 1
+
+# Escreve ATÔMICO e VALIDA
+escrever_atomico \
+    "/home/$USUARIO/.ssh/authorized_keys" \
+    "$CHAVE_PUBLICA" \
+    "servidor-lab@universidade" || exit 1
+
+aplicar_permissoes "/home/$USUARIO/.ssh/authorized_keys" "600" "$USUARIO:$USUARIO" || exit 1
 
 # Home acessível
-chmod 755 "/home/$USUARIO"
-chown "$USUARIO:$USUARIO" "/home/$USUARIO"
+aplicar_permissoes "/home/$USUARIO" "755" "$USUARIO:$USUARIO" || exit 1
 
 # Garante SSH rodando
 systemctl enable ssh >/dev/null 2>&1 || true
 systemctl start ssh  >/dev/null 2>&1 || true
 
+# ⭐ Valida que o SSH está rodando
+if ! systemctl is-active --quiet ssh; then
+    erro "SSH não está rodando"
+    exit 1
+fi
+
+log "chave SSH configurada e validada"
+
 # ---------------------------------------------------------------------
-# 3) Sudoers do nati — TODOS os comandos do lab
-#    ⭐ CORREÇÃO: adiciona Defaults:nati !requiretty e mais comandos
+# 3) Sudoers do nati — ATÔMICO e VALIDADO
 # ---------------------------------------------------------------------
+log "configurando sudoers do $USUARIO"
+
 SUDOERS_FILE="/etc/sudoers.d/nati-lab"
 rm -f /etc/sudoers.d/NATI /etc/sudoers.d/nati-admin /etc/sudoers.d/nati-lab
 
-cat > "$SUDOERS_FILE" <<EOF
-# nati - administrador do laboratório
-# Permite todos os comandos do ServidorLab sem senha
-Defaults:nati !requiretty
+SUDOERS_CONTENT=$(cat <<EOF
+# $USUARIO - administrador do laboratorio
+Defaults:$USUARIO !requiretty
 
 # Pacotes (apt)
 $USUARIO ALL=(ALL) NOPASSWD: /usr/bin/apt, /usr/bin/apt-get, /usr/bin/dpkg
@@ -99,21 +166,34 @@ $USUARIO ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-unblock-terminal.sh
 $USUARIO ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-prova-install.sh
 $USUARIO ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-startup.sh
 EOF
+)
 
-# Linha em branco no final
-echo "" >> "$SUDOERS_FILE"
+# Escreve ATÔMICO
+TMP_SUDOERS="/tmp/.sudoers-$$"
+printf '%s\n' "$SUDOERS_CONTENT" > "$TMP_SUDOERS"
 
-chmod 440 "$SUDOERS_FILE"
-chown root:root "$SUDOERS_FILE"
-
-# ⭐ Validação: se falhar, REMOVE o arquivo (não abre NOPASSWD: ALL)
-if ! visudo -cf "$SUDOERS_FILE" >/dev/null 2>&1; then
-    log "ERRO: sudoers $SUDOERS_FILE inválido. Removendo."
-    rm -f "$SUDOERS_FILE"
+# ⭐ Valida ANTES de mover
+if ! visudo -cf "$TMP_SUDOERS" >/dev/null 2>&1; then
+    erro "sudoers inválido — não será aplicado"
+    rm -f "$TMP_SUDOERS"
+    exit 1
 fi
 
+# Move (atômico)
+mv "$TMP_SUDOERS" "$SUDOERS_FILE"
+aplicar_permissoes "$SUDOERS_FILE" "440" "root:root" || exit 1
+
+# ⭐ Valida DEPOIS
+if ! visudo -cf "$SUDOERS_FILE" >/dev/null 2>&1; then
+    erro "sudoers inválido após mover"
+    rm -f "$SUDOERS_FILE"
+    exit 1
+fi
+
+log "sudoers configurado e validado"
+
 # ---------------------------------------------------------------------
-# 4) Remove o ALUNO do sudo (modelo mais seguro)
+# 4) Remove o ALUNO do sudo
 # ---------------------------------------------------------------------
 deluser aluno sudo 2>/dev/null || true
 gpasswd -d aluno sudo 2>/dev/null || true
@@ -131,20 +211,38 @@ if id "suporte" &>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------
-# 6) Teste final
+# 6) Validação final — tudo funciona?
 # ---------------------------------------------------------------------
-if sudo -n -l -U "$USUARIO" >/dev/null 2>&1; then
-    log "[OK] sudoers $USUARIO OK"
-else
-    log "[AVISO] sudoers $USUARIO NÃO funciona"
-fi
+log "=== VALIDAÇÃO FINAL ==="
 
-# Confirma que o aluno NÃO tem sudo
+# 6.1 — authorized_keys do nati
+if ! grep -qF "servidor-lab@universidade" "/home/$USUARIO/.ssh/authorized_keys"; then
+    erro "authorized_keys do nati não tem a chave"
+    exit 1
+fi
+log "OK: authorized_keys do nati tem a chave"
+
+# 6.2 — permissões
+PERM=$(stat -c%a "/home/$USUARIO/.ssh/authorized_keys")
+if [ "$PERM" != "600" ]; then
+    erro "authorized_keys do nati tem permissão $PERM"
+    exit 1
+fi
+log "OK: authorized_keys do nati tem permissão 600"
+
+# 6.3 — sudoers
+if ! sudo -n -l -U "$USUARIO" >/dev/null 2>&1; then
+    erro "sudoers do nati não funciona"
+    exit 1
+fi
+log "OK: sudoers do nati funciona"
+
+# 6.4 — aluno NÃO tem sudo
 if groups aluno 2>/dev/null | grep -q sudo; then
-    log "[AVISO] aluno AINDA está no grupo sudo"
-else
-    log "[OK] aluno NÃO tem sudo"
+    erro "aluno AINDA está no grupo sudo"
+    exit 1
 fi
+log "OK: aluno NÃO tem sudo"
 
-log "concluído"
+log "concluído com sucesso"
 exit 0
