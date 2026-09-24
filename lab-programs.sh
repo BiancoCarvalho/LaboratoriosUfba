@@ -626,6 +626,38 @@ fi
 #fi
 
 # =====================================================================
+# 34) Google Chrome — DESINSTALAR
+# =====================================================================
+if dpkg -l 2>/dev/null | grep -q "^ii  google-chrome"; then
+    echo "→ Desinstalando Google Chrome..."
+    
+    # 1. Purga o pacote (remove binário + configs)
+    apt-get purge -y google-chrome-stable
+    
+    # 2. Remove dependências órfãs
+    apt-get autoremove -y
+    
+    # 3. Remove o repositório do Chrome (se existir)
+    rm -f /etc/apt/sources.list.d/google-chrome.list
+    
+    # 4. Remove a chave GPG do Google (opcional)
+    rm -f /etc/apt/trusted.gpg.d/google-chrome.gpg
+    rm -f /etc/apt/trusted.gpg.d/google-chrome-stable.gpg
+    
+    # 5. Atualiza o índice do apt
+    apt-get update -y
+    
+    # 6. Valida
+    if command -v google-chrome &>/dev/null; then
+        echo "[ERRO] Chrome ainda presente"
+    else
+        echo "[SUCESSO] Chrome desinstalado"
+    fi
+else
+    echo "✅ Google Chrome não está instalado. Nada a fazer."
+fi
+
+# =====================================================================
 # 35) Android Studio
 # =====================================================================
 if ! [ -f /usr/local/sbin/android.sh ]; then
