@@ -1,21 +1,27 @@
 #!/bin/bash
 # =====================================================================
 #  lab-unblock.sh
-#  v6.0.0
+#  v6.1.0
 #
 #  Remove TODAS as políticas aplicadas pelo lab-block.sh:
 #    - Políticas de Firefox / Chrome / Chromium
-#    - Bloqueio de armazenamento USB (pendrive, HD externo, cartão SD)
-#  E encerra os browsers para que as mudanças surtam efeito.
+#    - Bloqueio de armazenamento USB
 #
-#  Uso:
-#    sudo /usr/local/sbin/lab-unblock.sh
+#  CORREÇÕES v6.1.0:
+#    - NÃO roda update-initramfs (lento demais — timeout SSH)
+#    - Remove arquivo modprobe.d (suficiente)
+#    - Kill de browsers com fallback
 # =====================================================================
 
 set +e
 
 LOG="/var/log/lab.log"
-echo "[$(date '+%F %T')] host=$(hostname) UNBLOCK" >> "$LOG"
+
+log() {
+    echo "[$(date '+%F %T')] host=$(hostname) UNBLOCK: $*" >> "$LOG"
+}
+
+log "iniciado"
 
 # =========================================================
 # 1) Remove políticas de BROWSER
@@ -24,7 +30,6 @@ REMOVER=(
     "/var/snap/firefox/common/policies/policies.json"
     "/etc/firefox/policies/policies.json"
     "/usr/lib/firefox/distribution/policies.json"
-
     "/etc/opt/chrome/policies/managed/policies.json"
     "/etc/opt/chromium/policies/managed/policies.json"
     "/etc/chromium/policies/managed/policies.json"
@@ -33,11 +38,11 @@ REMOVER=(
 for f in "${REMOVER[@]}"; do
     if [ -f "$f" ]; then
         rm -f "$f"
-        echo "[$(date '+%F %T')] removido: $f" >> "$LOG"
+        log "removido: $f"
     fi
 done
 
-# Remove pastas vazias (só se não tiverem mais nada)
+# Remove pastas vazias
 for d in \
     "/var/snap/firefox/common/policies" \
     "/etc/firefox/policies" \
@@ -51,71 +56,44 @@ do
 done
 
 # =========================================================
-# 2) Restaura ARMAZENAMENTO USB (pendrive / HD externo / cartão SD)
+# 2) Restaura ARMAZENAMENTO USB
 # =========================================================
 USB_CONF="/etc/modprobe.d/lab-usb.conf"
 
 if [ -f "$USB_CONF" ]; then
     rm -f "$USB_CONF"
-    echo "[$(date '+%F %T')] removido: $USB_CONF" >> "$LOG"
+    log "removido: $USB_CONF"
 fi
 
-# Tenta recarregar o módulo agora, se ainda não estiver carregado
+# ⭐ NÃO roda update-initramfs (muito lento)
+# O módulo já foi descarregado pelo lab-block.sh; recarregar agora:
 if ! lsmod | grep -q '^usb_storage'; then
-    modprobe usb-storage 2>/dev/null \
-        && echo "[$(date '+%F %T')] usb-storage recarregado" >> "$LOG" \
-        || echo "[$(date '+%F %T')] AVISO: falha ao recarregar usb-storage" >> "$LOG"
+    modprobe usb-storage 2>/dev/null && log "usb-storage recarregado"
 fi
 
-# Regenera a initramfs sem a regra de bloqueio
-if command -v update-initramfs &>/dev/null; then
-    update-initramfs -u >/dev/null 2>&1 \
-        && echo "[$(date '+%F %T')] initramfs atualizado (usb liberado)" >> "$LOG" \
-        || echo "[$(date '+%F %T')] AVISO: falha ao atualizar initramfs" >> "$LOG"
-fi
+log "USB liberado (initramfs NÃO atualizado — evita timeout)"
 
 # =========================================================
-# 3) Encerra NAVEGADORES (mesma lista do lab-block.sh v10)
+# 3) Encerra NAVEGADORES
 # =========================================================
-USUARIOS_HUMANOS=$(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd)
-
 BROWSERS=(
-    firefox
-    firefox-esr
-    chrome
-    google-chrome
-    chromium
-    chromium-browser
-    falkon
-    epiphany
-    midori
-    qutebrowser
-    surf
+    firefox firefox-esr
+    chrome google-chrome
+    chromium chromium-browser
+    falkon epiphany midori qutebrowser surf
 )
 
-# TERM primeiro (educado)
-for u in $USUARIOS_HUMANOS; do
-    for b in "${BROWSERS[@]}"; do
-        sudo -u "$u" pkill -TERM -x "$b" 2>/dev/null
-    done
-done
-
+# TERM educado
 for b in "${BROWSERS[@]}"; do
-    pkill -TERM -x "$b" 2>/dev/null
+    pkill -TERM -x "$b" 2>/dev/null || true
 done
 
 sleep 2
 
-# KILL depois (garantia)
-for u in $USUARIOS_HUMANOS; do
-    for b in "${BROWSERS[@]}"; do
-        sudo -u "$u" pkill -KILL -x "$b" 2>/dev/null
-    done
-done
-
+# KILL garantido
 for b in "${BROWSERS[@]}"; do
-    pkill -KILL -x "$b" 2>/dev/null
+    pkill -KILL -x "$b" 2>/dev/null || true
 done
 
-echo "[$(date '+%F %T')] UNBLOCK concluído" >> "$LOG"
+log "concluído"
 exit 0
