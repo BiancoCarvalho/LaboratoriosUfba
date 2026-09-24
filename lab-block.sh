@@ -1,7 +1,7 @@
 #!/bin/bash
 # =====================================================================
 #  lab-block.sh
-#  v10.0.0
+#  v10.1.0
 #
 #  Bloqueia TUDO no Firefox/Chrome, exceto os domínios passados.
 #  Também bloqueia armazenamento USB (pendrive, HD externo, cartão SD).
@@ -28,6 +28,12 @@ LISTA=()
 for s in "${LISTA_RAW[@]}"; do
     s=$(echo "$s" | xargs | sed "$SANITIZAR")
     [ -z "$s" ] && continue
+
+    # Remove ponto final / hífen nas pontas
+    s="${s%.}"
+    s="${s#.}"
+    [ -z "$s" ] && continue
+
     LISTA+=("$s")
 done
 
@@ -37,15 +43,40 @@ fi
 
 # =========================================================
 # Exceções do Firefox
+#
+# Para cada domínio, geramos:
+#   - domínio exato (com e sem www)
+#   - todos os subdomínios (*.dominio)
 # =========================================================
 EXCECOES=""
+adicionar_excecao() {
+    local url="$1"
+    EXCECOES="$EXCECOES\"$url\","
+}
+
 for s in "${LISTA[@]}"; do
     if echo "$s" | grep -q '\*'; then
-        EXCECOES="$EXCECOES\"https://$s/*\",\"http://$s/*\","
+        # Wildcard explícito: usuário já sabe o que quer
+        adicionar_excecao "https://$s/*"
+        adicionar_excecao "http://$s/*"
     else
-        EXCECOES="$EXCECOES\"https://$s/*\",\"http://$s/*\",\"https://*.$s/*\",\"http://*.$s/*\","
+        # Domínio raiz
+        adicionar_excecao "https://$s"
+        adicionar_excecao "http://$s"
+        adicionar_excecao "https://$s/*"
+        adicionar_excecao "http://$s/*"
+
+        # Subdomínios (www, mail, etc)
+        adicionar_excecao "https://*.$s/*"
+        adicionar_excecao "http://*.$s/*"
+
+        # www explícito (caso o wildcard não pegue)
+        adicionar_excecao "https://www.$s/*"
+        adicionar_excecao "http://www.$s/*"
     fi
 done
+
+# Remove a última vírgula
 EXCECOES="${EXCECOES%,}"
 
 # =========================================================
@@ -75,10 +106,7 @@ FIREFOX_POLICIES=$(cat <<EOF
     "DontCheckDefaultBrowser": true,
     "OfferToSaveLogins": false,
     "PasswordManagerEnabled": false,
-    "OverrideFirstRunPage": "",
-    "OverridePostUpdatePage": "",
     "NoDefaultBookmarks": true,
-    "DisableSafeBrowsing": true,
     "InstallAddonsPermission": {
       "Default": false
     },
@@ -89,12 +117,12 @@ FIREFOX_POLICIES=$(cat <<EOF
       "Microphone": { "BlockNewRequests": true }
     },
     "Preferences": {
-      "network.trr.mode":                        { "Value": 5,     "Status": "locked" },
-      "network.proxy.type":                      { "Value": 0,     "Status": "locked" },
-      "network.protocol-handler.external.irc":   { "Value": false, "Status": "locked" },
-      "network.protocol-handler.external.ftp":   { "Value": false, "Status": "locked" },
-      "network.protocol-handler.external.mailto":{ "Value": false, "Status": "locked" },
-      "network.protocol-handler.external.file":  { "Value": false, "Status": "locked" }
+      "network.trr.mode":                         { "Value": 5,     "Status": "locked" },
+      "network.proxy.type":                       { "Value": 0,     "Status": "locked" },
+      "network.protocol-handler.external.irc":    { "Value": false, "Status": "locked" },
+      "network.protocol-handler.external.ftp":    { "Value": false, "Status": "locked" },
+      "network.protocol-handler.external.mailto": { "Value": false, "Status": "locked" },
+      "network.protocol-handler.external.file":   { "Value": false, "Status": "locked" }
     }
   }
 }
@@ -121,6 +149,7 @@ for s in "${LISTA[@]}"; do
     if echo "$s" | grep -q '\*'; then
         ALLOWLIST="$ALLOWLIST\"$s\","
     else
+        # Chrome aceita domínio raiz e casa com subdomínios
         ALLOWLIST="$ALLOWLIST\"$s\",\"*.$s\","
     fi
 done
@@ -172,10 +201,6 @@ fi
 # =========================================================
 # BLOCK DE PENDRIVE / ARMAZENAMENTO USB
 # =========================================================
-# Estratégia: impede o carregamento do módulo usb-storage.
-# Isso bloqueia pendrive, HD externo e leitor de cartão USB.
-# Teclado, mouse, webcam e outros HIDs continuam funcionando.
-
 USB_CONF="/etc/modprobe.d/lab-usb.conf"
 
 {
@@ -186,14 +211,12 @@ USB_CONF="/etc/modprobe.d/lab-usb.conf"
 
 chmod 644 "$USB_CONF"
 
-# Descarrega o módulo agora, se estiver carregado
 if lsmod | grep -q '^usb_storage'; then
     modprobe -r usb-storage 2>/dev/null \
         && echo "[$(date '+%F %T')] usb-storage descarregado" >> "$LOG" \
         || echo "[$(date '+%F %T')] AVISO: falha ao descarregar usb-storage" >> "$LOG"
 fi
 
-# Garante que a regra vale desde o próximo boot
 if command -v update-initramfs &>/dev/null; then
     update-initramfs -u >/dev/null 2>&1 \
         && echo "[$(date '+%F %T')] initramfs atualizado (usb-storage bloqueado)" >> "$LOG" \
@@ -201,7 +224,7 @@ if command -v update-initramfs &>/dev/null; then
 fi
 
 # =========================================================
-# Mata navegadores
+# Mata navegadores (força releitura das políticas)
 # =========================================================
 USUARIOS_HUMANOS=$(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd)
 
@@ -229,5 +252,5 @@ for b in "${BROWSERS[@]}"; do
     pkill -KILL -x "$b" 2>/dev/null
 done
 
-echo "[$(date '+%F %T')] BLOCK concluído" >> "$LOG"
+echo "[$(date '+%F %T')] BLOCK concluído — liberados: ${LISTA[*]}" >> "$LOG"
 exit 0
