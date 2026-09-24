@@ -1,58 +1,53 @@
 #!/bin/bash
 # =====================================================================
 #  lab-postlogin-default.sh
-#  v4.0.0
+#  v6.0.0
 #
-#  Copiado pelo lab-startup.sh para /etc/gdm3/PostLogin/Default
-#  Roda A CADA LOGIN.
+#  Copiado para /etc/gdm3/PostLogin/Default pelo lab-startup.sh
+#  Roda A CADA LOGIN do aluno.
+#
+#  Mudanças em relação à v5.0.0:
+#    - ⭐ CORRIGIDO: fallback do sudoers NÃO aplica mais NOPASSWD: ALL
+#      Se o visudo falhar, o arquivo é REMOVIDO (aluno fica sem sudo)
+#    - ⭐ Adiciona lab-block-status.sh e lab-ipset-update.sh ao sudoers
+#    - ⭐ Adiciona lab-block-terminal.sh e lab-unblock-terminal.sh
+#    - Log de erro no /var/log/lab.log quando o visudo falha
 # =====================================================================
 
 if [[ "$USER" == "aluno" ]]; then
-
     rm -rf /home/$USER
     cp -r /etc/skel /home/$USER
     chown -R $USER:$USER /home/$USER
     echo "aluno:vivaoic2021!" | chpasswd
 
-    CHAVE="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMohJ7/PEW4OlfVwLcI0pZMmK0nsy05PLfYPiPCGSl6c servidor-lab@universidade"
+    # -----------------------------------------------------------------
+    # Chave pública SSH (mesma do labadmin.pub)
+    # -----------------------------------------------------------------
+    CHAVE_PUBLICA="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMohJ7/PEW4OlfVwLcI0pZMmK0nsy05PLfYPiPCGSl6c servidor-lab@universidade"
 
     mkdir -p /home/$USER/.ssh
     chmod 700 /home/$USER/.ssh
     chown $USER:$USER /home/$USER/.ssh
-    echo "$CHAVE" > /home/$USER/.ssh/authorized_keys
+
+    echo "$CHAVE_PUBLICA" > /home/$USER/.ssh/authorized_keys
     chmod 600 /home/$USER/.ssh/authorized_keys
     chown $USER:$USER /home/$USER/.ssh/authorized_keys
 
     systemctl enable ssh >/dev/null 2>&1 || true
     systemctl start ssh  >/dev/null 2>&1 || true
 
-    # Sudoers do aluno
-    rm -f /etc/sudoers.d/aluno-ssh
-
-    cat > /etc/sudoers.d/aluno-ssh <<'EOF'
-aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block.sh
-aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block-sites.sh
-aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-unblock.sh
-aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-prova-install.sh
-EOF
-    chmod 440 /etc/sudoers.d/aluno-ssh
-    chown root:root /etc/sudoers.d/aluno-ssh
-
-    # ⭐ Valida SÓ o arquivo criado
-    if ! visudo -cf /etc/sudoers.d/aluno-ssh >/dev/null 2>&1; then
-        cat > /etc/sudoers.d/aluno-ssh <<'EOF'
-aluno ALL=(ALL) NOPASSWD: ALL
-EOF
-        chmod 440 /etc/sudoers.d/aluno-ssh
-        chown root:root /etc/sudoers.d/aluno-ssh
-    fi
-
+    # -----------------------------------------------------------------
+    # PATHs
+    # -----------------------------------------------------------------
     echo 'export PATH="/opt/flutter/bin:$PATH"' >> /home/aluno/.bashrc
     echo 'export PATH="/opt/android-studio/bin:/opt/Android/Sdk/platform-tools:$PATH"' >> /home/aluno/.bashrc
     rm -f /opt/flutter/bin/cache/lockfile
 
     chown -R aluno:aluno /opt/flutter /opt/nand2tetris /opt/VMs 2>/dev/null || true
 
+    # -----------------------------------------------------------------
+    # Links simbólicos
+    # -----------------------------------------------------------------
     mkdir -p /home/$USER/Unity/Hub
     ln -sf /opt/Unity /home/$USER/Unity/Hub/Editor
     ln -sf /opt/gradle /home/$USER/.gradle
@@ -60,14 +55,44 @@ EOF
     ln -sf /opt/VMs /home/$USER/VirtualBox
     ln -sf /opt/nand2tetris /home/$USER/nand2tetris
 
-    if [ -n "$DISPLAY" ] && command -v dbus-launch &>/dev/null; then
-        dbus-launch dconf write /org/gnome/shell/favorite-apps \
-            "['firefox.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop']" \
-            2>/dev/null || true
+    # -----------------------------------------------------------------
+    # Sudoers restrito (via /etc/sudoers.d)
+    # ⭐ CORREÇÃO CRÍTICA v6.0.0: fallback seguro
+    # -----------------------------------------------------------------
+    rm -f /etc/sudoers.d/aluno-ssh
+
+    cat > /etc/sudoers.d/aluno-ssh <<'EOF'
+# aluno - permite apenas comandos especificos do ServidorLab
+aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block.sh
+aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block-sites.sh
+aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-unblock.sh
+aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block-status.sh
+aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-ipset-update.sh
+aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block-terminal.sh
+aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-unblock-terminal.sh
+aluno ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-prova-install.sh
+EOF
+
+    # ⭐ Linha em branco no final (evita erro do visudo)
+    echo "" >> /etc/sudoers.d/aluno-ssh
+
+    chmod 440 /etc/sudoers.d/aluno-ssh
+    chown root:root /etc/sudoers.d/aluno-ssh
+
+    # ⭐ VALIDAÇÃO SEGURA — se falhar, REMOVE o arquivo (não abre NOPASSWD: ALL)
+    if ! visudo -cf /etc/sudoers.d/aluno-ssh >/dev/null 2>&1; then
+        echo "[$(date '+%F %T')] ERRO: sudoers aluno-ssh inválido. Removendo." >> /var/log/lab.log
+        rm -f /etc/sudoers.d/aluno-ssh
     fi
 
+    # -----------------------------------------------------------------
+    # MySQL
+    # -----------------------------------------------------------------
     echo "DROP USER IF EXISTS 'aluno'@'localhost'; CREATE USER 'aluno'@'%' IDENTIFIED BY 'aluno'; GRANT ALL PRIVILEGES ON *.* TO 'aluno'@'%'; FLUSH PRIVILEGES;" | mysql -u root 2>/dev/null || true
 
+    # -----------------------------------------------------------------
+    # PostgreSQL
+    # -----------------------------------------------------------------
     sudo -u postgres psql -c "DROP DATABASE IF EXISTS aluno;" 2>/dev/null || true
     sudo -u postgres psql -c "DROP USER IF EXISTS aluno;" 2>/dev/null || true
     sudo -u postgres psql -c "CREATE USER aluno WITH PASSWORD 'aluno';" 2>/dev/null || true
@@ -78,14 +103,20 @@ EOF
     sudo sed -i "s/local\s*all\s*all\s*peer/local all all md5/" /etc/postgresql/*/main/pg_hba.conf 2>/dev/null || true
     sudo systemctl restart postgresql 2>/dev/null || true
 
+    # -----------------------------------------------------------------
+    # Inventário
+    # -----------------------------------------------------------------
     inventory_path="/etc/gdm3/PostLogin/inventory_script-master"
     inventory_url='https://inventario.app.ic.ufba.br/inventory'
+
     if [ -f "$inventory_path/src/inventory.py" ]; then
-        python3 $inventory_path/src/inventory.py $inventory_url &> /var/log/inventory.log
+        python3 "$inventory_path/src/inventory.py" "$inventory_url" &> /var/log/inventory.log
     fi
 
-    # Dispara a atualização dos scripts em background
-    nohup /usr/local/sbin/lab-startup.sh > /var/log/lab-startup-login.log 2>&1 &
+    # -----------------------------------------------------------------
+    # Roda o lab-startup em background
+    # -----------------------------------------------------------------
+    nohup /usr/local/sbin/lab-startup.sh > /var/log/lab-startup-postlogin.log 2>&1 &
 fi
 
 exit 0
