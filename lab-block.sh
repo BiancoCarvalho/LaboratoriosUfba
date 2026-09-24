@@ -217,11 +217,11 @@ if lsmod | grep -q '^usb_storage'; then
         || echo "[$(date '+%F %T')] AVISO: falha ao descarregar usb-storage" >> "$LOG"
 fi
 
-if command -v update-initramfs &>/dev/null; then
-    update-initramfs -u >/dev/null 2>&1 \
-        && echo "[$(date '+%F %T')] initramfs atualizado (usb-storage bloqueado)" >> "$LOG" \
-        || echo "[$(date '+%F %T')] AVISO: falha ao atualizar initramfs" >> "$LOG"
-fi
+#if command -v update-initramfs &>/dev/null; then
+#    update-initramfs -u >/dev/null 2>&1 \
+#        && echo "[$(date '+%F %T')] initramfs atualizado (usb-storage bloqueado)" >> "$LOG" \
+#        || echo "[$(date '+%F %T')] AVISO: falha ao atualizar initramfs" >> "$LOG"
+#fi
 
 # =========================================================
 # Mata navegadores (força releitura das políticas)
