@@ -1,12 +1,13 @@
 #!/bin/bash
 # =====================================================================
 #  lab-startup.sh
-#  v10.2.0
+#  v10.3.0
 #
-#  Mudanças em relação à v10.1.0:
-#    - ⭐ Adiciona download de lab-ipset-update.sh, .service, .timer
-#    - ⭐ Adiciona download de lab-block-status.sh
-#    - ⭐ Copia as units do ipset para /etc/systemd/system/
+#  Mudanças em relação à v10.2.0:
+#    - ⭐ Executa o lab-admin-profile-config.sh no final
+#    - ⭐ Verifica se o nati tem chave SSH e sudoers
+#    - ⭐ Remove o aluno do sudo (modelo mais seguro)
+#    - ⭐ Verifica o status do sudoers do nati
 # =====================================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -35,7 +36,6 @@ echo "========================================="
 echo "  Baixando scripts do repositorio..."
 echo "========================================="
 
-# --- scripts existentes ---
 wget -q --timeout=30 --tries=3 "$REPO/lab-profile-config.sh"         -O /tmp/lab-profile-config.sh
 wget -q --timeout=30 --tries=3 "$REPO/lab-aluno-config.sh"           -O /tmp/lab-aluno-config.sh
 wget -q --timeout=30 --tries=3 "$REPO/lab-programs.sh"               -O /tmp/lab-programs.sh
@@ -52,12 +52,12 @@ wget -q --timeout=30 --tries=3 "$REPO/lab-postlogin-default.sh"      -O /tmp/lab
 wget -q --timeout=30 --tries=3 "$REPO/labsecurity-agent.sh"          -O /tmp/labsecurity-agent.sh
 wget -q --timeout=30 --tries=3 "$REPO/labadmin.pub"                  -O /tmp/labadmin.pub
 
-# --- NOVOS: scripts do ipset ---
+# --- scripts do ipset ---
 wget -q --timeout=30 --tries=3 "$REPO/lab-ipset-update.sh"           -O /tmp/lab-ipset-update.sh
 wget -q --timeout=30 --tries=3 "$REPO/lab-ipset-update.service"      -O /tmp/lab-ipset-update.service
 wget -q --timeout=30 --tries=3 "$REPO/lab-ipset-update.timer"        -O /tmp/lab-ipset-update.timer
 
-# --- NOVO: status do bloqueio ---
+# --- status do bloqueio ---
 wget -q --timeout=30 --tries=3 "$REPO/lab-block-status.sh"           -O /tmp/lab-block-status.sh
 
 echo "[OK] Download concluido!"
@@ -75,7 +75,6 @@ if ! [ -f /usr/local/sbin/done.txt ]; then
     echo "false" > /usr/local/sbin/done.txt
     chmod 755 /usr/local/sbin/done.txt
 else
-    # --- scripts em /usr/local/sbin ---
     for arq in \
         lab-profile-config.sh \
         lab-aluno-config.sh \
@@ -98,7 +97,6 @@ else
         fi
     done
 
-    # --- units systemd ---
     for arq in \
         lab-ipset-update.service \
         lab-ipset-update.timer ; do
@@ -154,7 +152,6 @@ if [ "$DONE" = "false" ]; then
     chmod 755 /usr/local/sbin/lab-ipset-update.sh
     chmod 755 /usr/local/sbin/lab-block-status.sh
 
-    # Units do systemd
     cp /tmp/lab-ipset-update.service    /etc/systemd/system/
     cp /tmp/lab-ipset-update.timer      /etc/systemd/system/
     chmod 644 /etc/systemd/system/lab-ipset-update.service
@@ -256,7 +253,7 @@ fi
 echo ""
 
 # ==============================
-# 4.5 Desabilita timers que não devem rodar no boot
+# 4.5 Desabilita timers
 # ==============================
 if systemctl list-unit-files 2>/dev/null | grep -q '^lab-ipset-update.timer'; then
     if systemctl is-enabled --quiet lab-ipset-update.timer 2>/dev/null; then
@@ -268,10 +265,10 @@ fi
 echo ""
 
 # ==============================
-# 5. Executa recriacao do usuario NATI
+# 5. ⭐ Recria usuario NATI (com chave + sudoers completo)
 # ==============================
 echo "========================================="
-echo "  Recriando usuario NATI..."
+echo "  Configurando usuario NATI..."
 echo "========================================="
 
 if [ -f /usr/local/sbin/lab-admin-profile-config.sh ]; then
@@ -284,7 +281,66 @@ fi
 echo ""
 
 # ==============================
-# 6. Informacoes finais
+# 6. ⭐ Verifica o nati (chave + sudoers)
+# ==============================
+echo "========================================="
+echo "  Verificando NATI..."
+echo "========================================="
+
+# Chave SSH
+if [ -f /home/nati/.ssh/authorized_keys ]; then
+    echo "✅ Chave SSH do NATI existe"
+else
+    echo "❌ Chave SSH do NATI NÃO existe"
+fi
+
+# Sudoers
+if [ -f /etc/sudoers.d/nati-lab ]; then
+    if visudo -cf /etc/sudoers.d/nati-lab >/dev/null 2>&1; then
+        echo "✅ Sudoers do NATI VÁLIDO"
+    else
+        echo "❌ Sudoers do NATI INVÁLIDO"
+    fi
+else
+    echo "❌ Sudoers do NATI NÃO existe"
+fi
+
+# Grupos
+if groups nati 2>/dev/null | grep -q sudo; then
+    echo "✅ NATI está no grupo sudo"
+else
+    echo "❌ NATI NÃO está no grupo sudo"
+fi
+
+echo ""
+
+# ==============================
+# 7. ⭐ Verifica que o ALUNO NÃO tem sudo
+# ==============================
+echo "========================================="
+echo "  Verificando ALUNO (não deve ter sudo)..."
+echo "========================================="
+
+# Grupo sudo
+if groups aluno 2>/dev/null | grep -q sudo; then
+    echo "⚠️  ALUNO AINDA está no grupo sudo — removendo"
+    deluser aluno sudo 2>/dev/null || true
+else
+    echo "✅ ALUNO NÃO está no grupo sudo"
+fi
+
+# Sudoers
+if [ -f /etc/sudoers.d/aluno-ssh ]; then
+    echo "⚠️  Sudoers do aluno AINDA existe — removendo"
+    rm -f /etc/sudoers.d/aluno-ssh
+else
+    echo "✅ Sudoers do aluno NÃO existe"
+fi
+
+echo ""
+
+# ==============================
+# 8. Informacoes finais
 # ==============================
 echo "========================================="
 echo "  CONFIGURACAO CONCLUIDA!"
@@ -293,10 +349,10 @@ echo ""
 echo "RESUMO:"
 echo "   [OK] Scripts do laboratorio atualizados"
 echo "   [OK] LabSecurity Agent instalado"
-echo "   [OK] Terminal bloqueável via lab-block.sh"
-echo "   [OK] ipset-update instalado (inativo até a 1ª reserva)"
+echo "   [OK] NATI configurado (chave SSH + sudoers)"
+echo "   [OK] ALUNO NÃO tem sudo"
 echo ""
-echo "BLOQUEIO:"
+echo "BLOQUEIO (como nati):"
 echo "   Bloquear:    sudo /usr/local/sbin/lab-block.sh \"site1,site2\""
 echo "   Desbloquear: sudo /usr/local/sbin/lab-unblock.sh"
 echo "   Status:      sudo /usr/local/sbin/lab-block-status.sh"
