@@ -1,7 +1,7 @@
 #!/bin/bash
 # =====================================================================
 #  lab-block-terminal.sh
-#  v1.1.0
+#  v1.2.0
 #
 #  Bloqueia o terminal para o usuário 'aluno' (não afeta 'nati').
 #
@@ -9,9 +9,14 @@
 #    1. Cria grupo 'terminal-users' (nati + root)
 #    2. Bloqueia binários dos terminais (chmod 750)
 #    3. Remove atalhos do GNOME
-#    4. Bloqueia troca de TTY
+#    4. Bloqueia troca de TTY (sem reiniciar logind)
 #    5. Esconde terminais do menu
-#    6. Mata terminais e processos abertos do aluno
+#    6. Mata terminais e processos do aluno (PRESERVANDO SSH)
+#
+#  CORREÇÕES v1.2.0:
+#    - NÃO mata processos SSH (evita derrubar conexão do C#)
+#    - NÃO reinicia systemd-logind (evita derrubar SSH)
+#    - Preserva mais processos essenciais
 #
 #  Localização: /usr/local/sbin/lab-block-terminal.sh
 # =====================================================================
@@ -84,7 +89,7 @@ command -v dconf &>/dev/null && dconf update 2>/dev/null || true
 log "atalhos bloqueados"
 
 # =========================================================
-# 4. Bloqueia troca de TTY
+# 4. Bloqueia troca de TTY (SEM reiniciar logind)
 # =========================================================
 mkdir -p /etc/systemd/logind.conf.d
 
@@ -94,8 +99,10 @@ NAutoVTs=0
 ReserveVT=0
 TTY
 
-systemctl restart systemd-logind 2>/dev/null || true
-log "TTY bloqueado"
+# ⭐ NÃO reinicia systemd-logind (evita derrubar SSH)
+# A configuração só afeta novos logins. Reboot aplica.
+# systemctl restart systemd-logind 2>/dev/null || true
+log "TTY bloqueado (aplicará no próximo login)"
 
 # =========================================================
 # 5. Esconde do menu
@@ -117,33 +124,48 @@ done
 log "menus atualizados"
 
 # =========================================================
-# 6. Mata terminais e processos do aluno (NOVO)
+# 6. Mata terminais e processos do aluno (PRESERVANDO SSH)
 # =========================================================
 log "matando processos do aluno"
+
 MORTOS=0
+PRESERVADOS=0
 
 for pid in $(pgrep -u aluno 2>/dev/null); do
     proc_name=$(ps -p "$pid" -o comm= 2>/dev/null)
 
     # Essenciais que NÃO devem morrer
     case "$proc_name" in
+        # Sessão gráfica
         gnome-shell|gnome-session-binary|gnome-session|Xorg|Xwayland|dbus-daemon|dbus-launch|gdm-session-worker)
+            PRESERVADOS=$((PRESERVADOS + 1))
             continue
             ;;
+        # Firefox (o aluno usa com sites liberados)
         firefox|firefox-esr|firefox-bin)
+            PRESERVADOS=$((PRESERVADOS + 1))
+            continue
+            ;;
+        # ⭐ SSH (NÃO MATA — senão o C# perde a conexão)
+        sshd|sshd-session|systemd-user|systemd|systemd-logind)
+            PRESERVADOS=$((PRESERVADOS + 1))
             continue
             ;;
     esac
 
+    # Mata o resto (terminais, editores, etc)
     kill -KILL "$pid" 2>/dev/null || true
     MORTOS=$((MORTOS + 1))
 done
 
-log "$MORTOS processos do aluno mortos"
+log "$MORTOS processos do aluno mortos ($PRESERVADOS preservados)"
 
 # =========================================================
 # Finalização
 # =========================================================
-log "concluído — $BLOQUEADOS terminais bloqueados, $MORTOS processos mortos"
-echo "✅ Terminal bloqueado ($BLOQUEADOS binários, $MORTOS processos mortos)"
+log "concluído — $BLOQUEADOS terminais bloqueados, $MORTOS processos mortos, $PRESERVADOS preservados"
+echo "✅ Terminal bloqueado"
+echo "   - $BLOQUEADOS binários bloqueados"
+echo "   - $MORTOS processos do aluno encerrados"
+echo "   - $PRESERVADOS processos preservados (SSH, GNOME, Firefox)"
 exit 0
