@@ -1,14 +1,12 @@
 #!/bin/bash
 # =====================================================================
 #  lab-startup.sh
-#  v10.0.0
+#  v10.1.0
 #
-#  Modelo: baseado no lab-startup.sh antigo (com echo, done.txt, etc)
-#  Correcoes:
-#    - Repositorio correto: BiancoCarvalho (nao graco-ufba)
-#    - Baixa TODOS os 13 scripts (nao so 8)
-#    - SEMPRE roda o lab-programs.sh (mesmo se done.txt = true)
-#    - Copia PostLogin para /etc/gdm3/PostLogin/Default
+#  Correções v10.1.0:
+#    - Adiciona lab-block-terminal.sh e lab-unblock-terminal.sh
+#    - Baixa 15 scripts (antes 13)
+#    - Mantém toda a lógica anterior
 # =====================================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -47,6 +45,8 @@ wget -q --timeout=30 --tries=3 "$REPO/lab-admin-profile-config.sh"   -O /tmp/lab
 wget -q --timeout=30 --tries=3 "$REPO/lab-block.sh"                  -O /tmp/lab-block.sh
 wget -q --timeout=30 --tries=3 "$REPO/lab-block-sites.sh"            -O /tmp/lab-block-sites.sh
 wget -q --timeout=30 --tries=3 "$REPO/lab-unblock.sh"                -O /tmp/lab-unblock.sh
+wget -q --timeout=30 --tries=3 "$REPO/lab-block-terminal.sh"         -O /tmp/lab-block-terminal.sh
+wget -q --timeout=30 --tries=3 "$REPO/lab-unblock-terminal.sh"       -O /tmp/lab-unblock-terminal.sh
 wget -q --timeout=30 --tries=3 "$REPO/lab-postlogin-default.sh"      -O /tmp/lab-postlogin-default.sh
 wget -q --timeout=30 --tries=3 "$REPO/labsecurity-agent.sh"          -O /tmp/labsecurity-agent.sh
 wget -q --timeout=30 --tries=3 "$REPO/labadmin.pub"                  -O /tmp/labadmin.pub
@@ -90,6 +90,18 @@ else
 	if [ ! -f /usr/local/sbin/labsecurity-agent.sh ] || ! cmp -s /usr/local/sbin/labsecurity-agent.sh /tmp/labsecurity-agent.sh; then
 		echo "false" > /usr/local/sbin/done.txt
 	fi
+	if [ ! -f /usr/local/sbin/lab-block.sh ] || ! cmp -s /usr/local/sbin/lab-block.sh /tmp/lab-block.sh; then
+		echo "false" > /usr/local/sbin/done.txt
+	fi
+	if [ ! -f /usr/local/sbin/lab-unblock.sh ] || ! cmp -s /usr/local/sbin/lab-unblock.sh /tmp/lab-unblock.sh; then
+		echo "false" > /usr/local/sbin/done.txt
+	fi
+	if [ ! -f /usr/local/sbin/lab-block-terminal.sh ] || ! cmp -s /usr/local/sbin/lab-block-terminal.sh /tmp/lab-block-terminal.sh; then
+		echo "false" > /usr/local/sbin/done.txt
+	fi
+	if [ ! -f /usr/local/sbin/lab-unblock-terminal.sh ] || ! cmp -s /usr/local/sbin/lab-unblock-terminal.sh /tmp/lab-unblock-terminal.sh; then
+		echo "false" > /usr/local/sbin/done.txt
+	fi
 fi
 
 DONE=$(cat /usr/local/sbin/done.txt)
@@ -112,6 +124,8 @@ if [ "$DONE" = "false" ]; then
 	cp /tmp/lab-block.sh /usr/local/sbin
 	cp /tmp/lab-block-sites.sh /usr/local/sbin
 	cp /tmp/lab-unblock.sh /usr/local/sbin
+	cp /tmp/lab-block-terminal.sh /usr/local/sbin
+	cp /tmp/lab-unblock-terminal.sh /usr/local/sbin
 	cp /tmp/lab-postlogin-default.sh /usr/local/sbin
 	cp /tmp/labsecurity-agent.sh /usr/local/sbin
 	cp /tmp/labadmin.pub /usr/local/sbin
@@ -126,6 +140,8 @@ if [ "$DONE" = "false" ]; then
 	chmod 755 /usr/local/sbin/lab-block.sh
 	chmod 755 /usr/local/sbin/lab-block-sites.sh
 	chmod 755 /usr/local/sbin/lab-unblock.sh
+	chmod 755 /usr/local/sbin/lab-block-terminal.sh
+	chmod 755 /usr/local/sbin/lab-unblock-terminal.sh
 	chmod 755 /usr/local/sbin/lab-postlogin-default.sh
 	chmod 755 /usr/local/sbin/labsecurity-agent.sh
 	chmod 644 /usr/local/sbin/labadmin.pub
@@ -170,8 +186,6 @@ echo ""
 # ==============================
 # 3.5 SEMPRE roda o lab-programs.sh (selos decidem)
 # ==============================
-# Mesmo que "nada mudou", roda o lab-programs.sh para instalar
-# programas novos que foram adicionados ao script.
 if [ -x /usr/local/sbin/lab-programs.sh ]; then
 	echo "========================================="
 	echo "  Rodando lab-programs.sh (SEMPRE)..."
@@ -255,6 +269,7 @@ echo ""
 echo "RESUMO:"
 echo "   [OK] Scripts do laboratorio atualizados"
 echo "   [OK] LabSecurity Agent instalado"
+echo "   [OK] Terminal bloqueável via lab-block.sh"
 echo ""
 echo "PARA MONITORAR:"
 echo "   Acesse http://IC-1046419:5000 no navegador"
@@ -266,9 +281,14 @@ echo "   Parar agente: systemctl stop labsecurity-agent"
 echo "   Iniciar agente: systemctl start labsecurity-agent"
 echo "   Reiniciar agente: systemctl restart labsecurity-agent"
 echo ""
+echo "BLOQUEIO:"
+echo "   Bloquear:  sudo /usr/local/sbin/lab-block.sh \"site1,site2\""
+echo "   Desbloquear: sudo /usr/local/sbin/lab-unblock.sh"
+echo ""
 echo "LOGS:"
 echo "   systemd: journalctl -u labsecurity-agent -n 50"
 echo "   arquivo: tail -f /var/log/labsecurity-agent.log"
+echo "   lab: tail -f /var/log/lab.log"
 echo ""
 echo "========================================="
 
