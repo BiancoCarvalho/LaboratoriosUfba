@@ -1,100 +1,112 @@
 #!/bin/bash
 # =====================================================================
 #  lab-block.sh
-#  v10.1.0
+#  v11.0.0
 #
-#  Bloqueia TUDO no Firefox/Chrome, exceto os domínios informados.
-#  Também bloqueia armazenamento USB (pendrive, HD externo, cartão SD).
+#  Bloqueia TUDO exceto os sites liberados.
 #
 #  Uso:
-#    sudo /usr/local/sbin/lab-block.sh
-#    sudo /usr/local/sbin/lab-block.sh "jude.dcc.ufba.br,google.com"
+#    sudo /usr/local/sbin/lab-block.sh "jude.dcc.ufba.br,uol.com.br,hotmail.com"
+#    sudo /usr/local/sbin/lab-block.sh              # usa fallback
+#
+#  O que faz:
+#    - Bloqueia Firefox (.deb) via policies.json
+#    - Bloqueia Firefox (Snap) via policies.json
+#    - Bloqueia Chrome via policies.json
+#    - Bloqueia Chromium via policies.json
+#    - Bloqueia armazenamento USB
+#    - Mata navegadores abertos (para recarregar políticas)
+#
+#  O que NÃO faz:
+#    - Não roda update-initramfs (evita timeout SSH)
+#    - Não descarta domínios válidos (bug corrigido na v11)
+#
+#  Localização: /usr/local/sbin/lab-block.sh
 # =====================================================================
 
 set -u
 
 LOG="/var/log/lab.log"
-
 LIBERADOS_ARG="${1:-jude.dcc.ufba.br,*.dcc.ufba.br}"
 
-echo "[$(date '+%F %T')] host=$(hostname) BLOCK: iniciado (liberados: $LIBERADOS_ARG)" >> "$LOG"
+log() {
+    echo "[$(date '+%F %T')] host=$(hostname) BLOCK: $*" >> "$LOG"
+}
+
+log "iniciado (liberados: $LIBERADOS_ARG)"
 
 # =========================================================
-# Sanitização da lista de domínios
+# Sanitização robusta
 # =========================================================
-SANITIZAR='s/[^a-zA-Z0-9.\-*,]//g'
+# Remove \r (Windows) e normaliza espaços
+LIBERADOS_ARG=$(echo "$LIBERADOS_ARG" | tr -d '\r' | tr -s ' ')
 
 IFS=',' read -ra LISTA_RAW <<< "$LIBERADOS_ARG"
-
 LISTA=()
-for s in "${LISTA_RAW[@]}"; do
-    # trim + sanitiza
-    s=$(echo "$s" | xargs | sed "$SANITIZAR")
 
-    # pula vazios
+for s in "${LISTA_RAW[@]}"; do
+    # Trim de espaços
+    s=$(echo "$s" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+    # Pula vazios
     [ -z "$s" ] && continue
 
-    # remove ponto/hífen nas pontas
+    # Remove caracteres perigosos (mantém letras, números, pontos, hífens, asteriscos)
+    s=$(echo "$s" | sed 's/[^a-zA-Z0-9.*-]//g')
+
+    # Pula se ficou vazio
+    [ -z "$s" ] && continue
+
+    # Remove pontos no começo/fim
     s="${s%.}"
     s="${s#.}"
-    s="${s#-}"
-    s="${s%-}"
 
+    # Pula se ficou vazio
     [ -z "$s" ] && continue
 
-    LISTA+=("$s")
+    # Valida que tem pelo menos 1 ponto OU asterisco (domínio válido)
+    if echo "$s" | grep -qE '\.|\*'; then
+        LISTA+=("$s")
+        log "aceito: $s"
+    else
+        log "REJEITADO (sem ponto): $s"
+    fi
 done
 
-# ⭐ Só cai no fallback se a lista realmente ficou vazia
+# Se nada passou, usa fallback
 if [ ${#LISTA[@]} -eq 0 ]; then
-    echo "[$(date '+%F %T')] host=$(hostname) BLOCK: lista vazia, usando fallback" >> "$LOG"
     LISTA=("jude.dcc.ufba.br" "*.dcc.ufba.br")
+    log "lista vazia, usando fallback"
 fi
 
-echo "[$(date '+%F %T')] host=$(hostname) BLOCK: lista final: ${LISTA[*]}" >> "$LOG"
+log "lista final: ${LISTA[*]}"
+echo "Lista final: ${LISTA[*]}"
 
 # =========================================================
-# Exceções do Firefox
-#
-# Para cada domínio, geramos:
-#   - domínio exato (com e sem www)
-#   - todos os subdomínios (*.dominio)
+# Firefox — Exceções
 # =========================================================
 EXCECOES=""
-
-adicionar_excecao() {
-    local url="$1"
-    EXCECOES="$EXCECOES\"$url\","
-}
+adicionar_excecao() { EXCECOES="$EXCECOES\"$1\","; }
 
 for s in "${LISTA[@]}"; do
     if echo "$s" | grep -q '\*'; then
-        # Wildcard explícito: usuário já sabe o que quer
+        # Wildcard: só adiciona com /*
         adicionar_excecao "https://$s/*"
         adicionar_excecao "http://$s/*"
     else
-        # Domínio raiz
+        # Domínio normal: adiciona todas as variações
         adicionar_excecao "https://$s"
         adicionar_excecao "http://$s"
         adicionar_excecao "https://$s/*"
         adicionar_excecao "http://$s/*"
-
-        # Subdomínios (www, mail, etc)
         adicionar_excecao "https://*.$s/*"
         adicionar_excecao "http://*.$s/*"
-
-        # www explícito (garantia)
         adicionar_excecao "https://www.$s/*"
         adicionar_excecao "http://www.$s/*"
     fi
 done
-
-# Remove a última vírgula
 EXCECOES="${EXCECOES%,}"
 
-# =========================================================
-# JSON do Firefox
-# =========================================================
 FIREFOX_POLICIES=$(cat <<EOF
 {
   "policies": {
@@ -120,42 +132,42 @@ FIREFOX_POLICIES=$(cat <<EOF
     "OfferToSaveLogins": false,
     "PasswordManagerEnabled": false,
     "NoDefaultBookmarks": true,
-    "InstallAddonsPermission": {
-      "Default": false
-    },
+    "InstallAddonsPermission": { "Default": false },
     "Permissions": {
-      "Location": { "BlockNewRequests": true },
+      "Location":      { "BlockNewRequests": true },
       "Notifications": { "BlockNewRequests": true },
-      "Camera": { "BlockNewRequests": true },
-      "Microphone": { "BlockNewRequests": true }
+      "Camera":        { "BlockNewRequests": true },
+      "Microphone":    { "BlockNewRequests": true }
     },
     "Preferences": {
-      "network.trr.mode":                         { "Value": 5,     "Status": "locked" },
-      "network.proxy.type":                       { "Value": 0,     "Status": "locked" },
-      "network.protocol-handler.external.irc":    { "Value": false, "Status": "locked" },
-      "network.protocol-handler.external.ftp":    { "Value": false, "Status": "locked" },
-      "network.protocol-handler.external.mailto": { "Value": false, "Status": "locked" },
-      "network.protocol-handler.external.file":   { "Value": false, "Status": "locked" }
+      "network.trr.mode":                          { "Value": 5,     "Status": "locked" },
+      "network.proxy.type":                        { "Value": 0,     "Status": "locked" },
+      "network.protocol-handler.external.irc":     { "Value": false, "Status": "locked" },
+      "network.protocol-handler.external.ftp":     { "Value": false, "Status": "locked" },
+      "network.protocol-handler.external.mailto":  { "Value": false, "Status": "locked" },
+      "network.protocol-handler.external.file":    { "Value": false, "Status": "locked" }
     }
   }
 }
 EOF
 )
 
-# Aplica no Firefox snap (Ubuntu 22.04+)
+# Firefox Snap
 if [ -d /snap/firefox ] || snap list firefox &>/dev/null; then
     mkdir -p /var/snap/firefox/common/policies
     echo "$FIREFOX_POLICIES" > /var/snap/firefox/common/policies/policies.json
     chmod 644 /var/snap/firefox/common/policies/policies.json
-    echo "[$(date '+%F %T')] host=$(hostname) BLOCK: políticas Firefox snap aplicadas" >> "$LOG"
+    log "políticas Firefox Snap aplicadas"
+    echo "✅ Firefox Snap bloqueado"
 fi
 
-# Aplica no Firefox .deb
+# Firefox .deb
 if [ -f /usr/lib/firefox/firefox ] || [ -f /usr/lib/firefox/firefox.sh ]; then
     mkdir -p /etc/firefox/policies
     echo "$FIREFOX_POLICIES" > /etc/firefox/policies/policies.json
     chmod 644 /etc/firefox/policies/policies.json
-    echo "[$(date '+%F %T')] host=$(hostname) BLOCK: políticas Firefox .deb aplicadas" >> "$LOG"
+    log "políticas Firefox .deb aplicadas"
+    echo "✅ Firefox .deb bloqueado"
 fi
 
 # =========================================================
@@ -206,54 +218,65 @@ if [ -d /opt/google/chrome ] || command -v google-chrome &>/dev/null; then
     mkdir -p /etc/opt/chrome/policies/managed
     echo "$CHROME_POLICIES" > /etc/opt/chrome/policies/managed/policies.json
     chmod 644 /etc/opt/chrome/policies/managed/policies.json
+    log "políticas Chrome aplicadas"
+    echo "✅ Chrome bloqueado"
 fi
 
 if [ -d /usr/lib/chromium ] || command -v chromium &>/dev/null; then
     mkdir -p /etc/opt/chromium/policies/managed
     echo "$CHROME_POLICIES" > /etc/opt/chromium/policies/managed/policies.json
     chmod 644 /etc/opt/chromium/policies/managed/policies.json
+    log "políticas Chromium aplicadas"
+    echo "✅ Chromium bloqueado"
 fi
 
 # =========================================================
-# BLOCK DE PENDRIVE / ARMAZENAMENTO USB
+# USB — Bloqueia armazenamento removível
 # =========================================================
 USB_CONF="/etc/modprobe.d/lab-usb.conf"
 
-{
-    echo "# Bloqueio de armazenamento USB — gerado por lab-block.sh"
-    echo "install usb-storage /bin/false"
-    echo "blacklist usb-storage"
-} > "$USB_CONF"
-
+cat > "$USB_CONF" <<EOF
+# Bloqueio de armazenamento USB — gerado por lab-block.sh
+install usb-storage /bin/false
+blacklist usb-storage
+EOF
 chmod 644 "$USB_CONF"
 
-# Descarrega o módulo agora, se estiver carregado
+# NÃO roda update-initramfs (evita timeout SSH)
+# O módulo já está carregado, então só descarrega se possível
 if lsmod | grep -q '^usb_storage'; then
-    modprobe -r usb-storage 2>/dev/null \
-        && echo "[$(date '+%F %T')] host=$(hostname) BLOCK: usb-storage descarregado" >> "$LOG" \
-        || echo "[$(date '+%F %T')] host=$(hostname) BLOCK: AVISO: falha ao descarregar usb-storage" >> "$LOG"
+    modprobe -r usb-storage 2>/dev/null || true
 fi
 
-# ⭐ update-initramfs NÃO é chamado aqui — é lento e só precisa rodar UMA vez.
-#    Rode manualmente: sudo update-initramfs -u
-echo "[$(date '+%F %T')] host=$(hostname) BLOCK: USB bloqueado (initramfs NÃO atualizado — evita timeout)" >> "$LOG"
+log "USB bloqueado"
+echo "✅ USB bloqueado"
 
 # =========================================================
-# Mata navegadores (força releitura das políticas)
+# Mata navegadores para forçar releitura das políticas
 # =========================================================
-BROWSERS=(firefox firefox-esr chrome google-chrome chromium chromium-browser falkon epiphany midori qutebrowser surf)
+BROWSERS=(
+    firefox firefox-esr
+    chrome google-chrome
+    chromium chromium-browser
+    falkon epiphany midori qutebrowser surf
+)
 
-# SIGTERM global (pkill -x pega todos os usuários)
+# TERM educado
 for b in "${BROWSERS[@]}"; do
     pkill -TERM -x "$b" 2>/dev/null || true
 done
 
 sleep 1
 
-# SIGKILL global
+# KILL garantido
 for b in "${BROWSERS[@]}"; do
     pkill -KILL -x "$b" 2>/dev/null || true
 done
 
-echo "[$(date '+%F %T')] host=$(hostname) BLOCK: concluído — liberados: ${LISTA[*]}" >> "$LOG"
+# =========================================================
+# Finalização
+# =========================================================
+log "concluído — liberados: ${LISTA[*]}"
+echo ""
+echo "✅ Bloqueio aplicado — liberados: ${LISTA[*]}"
 exit 0
