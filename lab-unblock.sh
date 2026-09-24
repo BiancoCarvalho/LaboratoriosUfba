@@ -1,16 +1,14 @@
 #!/bin/bash
 # =====================================================================
 #  lab-unblock.sh
-#  v6.1.0
+#  v6.2.0
 #
 #  Remove TODAS as políticas aplicadas pelo lab-block.sh:
 #    - Políticas de Firefox / Chrome / Chromium
 #    - Bloqueio de armazenamento USB
+#    - ⭐ Bloqueio de terminal
 #
-#  CORREÇÕES v6.1.0:
-#    - NÃO roda update-initramfs (lento demais — timeout SSH)
-#    - Remove arquivo modprobe.d (suficiente)
-#    - Kill de browsers com fallback
+#  Localização: /usr/local/sbin/lab-unblock.sh
 # =====================================================================
 
 set +e
@@ -65,16 +63,27 @@ if [ -f "$USB_CONF" ]; then
     log "removido: $USB_CONF"
 fi
 
-# ⭐ NÃO roda update-initramfs (muito lento)
-# O módulo já foi descarregado pelo lab-block.sh; recarregar agora:
 if ! lsmod | grep -q '^usb_storage'; then
     modprobe usb-storage 2>/dev/null && log "usb-storage recarregado"
 fi
 
-log "USB liberado (initramfs NÃO atualizado — evita timeout)"
+log "USB liberado"
 
 # =========================================================
-# 3) Encerra NAVEGADORES
+# 3) Desbloqueia TERMINAL (novo)
+# =========================================================
+if [ -x /usr/local/sbin/lab-unblock-terminal.sh ]; then
+    log "desbloqueando terminal"
+    /usr/local/sbin/lab-unblock-terminal.sh >> "$LOG" 2>&1 || \
+        log "AVISO: falha ao desbloquear terminal"
+    echo "✅ Terminal restaurado"
+else
+    log "AVISO: lab-unblock-terminal.sh não encontrado"
+    echo "⚠️  Terminal NÃO restaurado (script ausente)"
+fi
+
+# =========================================================
+# 4) Encerra NAVEGADORES
 # =========================================================
 BROWSERS=(
     firefox firefox-esr
@@ -83,17 +92,17 @@ BROWSERS=(
     falkon epiphany midori qutebrowser surf
 )
 
-# TERM educado
 for b in "${BROWSERS[@]}"; do
     pkill -TERM -x "$b" 2>/dev/null || true
 done
 
 sleep 2
 
-# KILL garantido
 for b in "${BROWSERS[@]}"; do
     pkill -KILL -x "$b" 2>/dev/null || true
 done
 
 log "concluído"
+echo ""
+echo "✅ Desbloqueio concluído"
 exit 0
