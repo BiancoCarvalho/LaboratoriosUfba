@@ -1,9 +1,10 @@
 #!/bin/bash
 # =====================================================================
 #  lab-block.sh
-#  v11.0.0
+#  v11.1.0
 #
 #  Bloqueia TUDO exceto os sites liberados.
+#  BLOQUEIA TAMBÉM O TERMINAL para o usuário 'aluno'.
 #
 #  Uso:
 #    sudo /usr/local/sbin/lab-block.sh "jude.dcc.ufba.br,uol.com.br,hotmail.com"
@@ -15,11 +16,8 @@
 #    - Bloqueia Chrome via policies.json
 #    - Bloqueia Chromium via policies.json
 #    - Bloqueia armazenamento USB
+#    - ⭐ Bloqueia terminal para o aluno
 #    - Mata navegadores abertos (para recarregar políticas)
-#
-#  O que NÃO faz:
-#    - Não roda update-initramfs (evita timeout SSH)
-#    - Não descarta domínios válidos (bug corrigido na v11)
 #
 #  Localização: /usr/local/sbin/lab-block.sh
 # =====================================================================
@@ -38,33 +36,20 @@ log "iniciado (liberados: $LIBERADOS_ARG)"
 # =========================================================
 # Sanitização robusta
 # =========================================================
-# Remove \r (Windows) e normaliza espaços
 LIBERADOS_ARG=$(echo "$LIBERADOS_ARG" | tr -d '\r' | tr -s ' ')
 
 IFS=',' read -ra LISTA_RAW <<< "$LIBERADOS_ARG"
 LISTA=()
 
 for s in "${LISTA_RAW[@]}"; do
-    # Trim de espaços
     s=$(echo "$s" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-
-    # Pula vazios
     [ -z "$s" ] && continue
-
-    # Remove caracteres perigosos (mantém letras, números, pontos, hífens, asteriscos)
     s=$(echo "$s" | sed 's/[^a-zA-Z0-9.*-]//g')
-
-    # Pula se ficou vazio
     [ -z "$s" ] && continue
-
-    # Remove pontos no começo/fim
     s="${s%.}"
     s="${s#.}"
-
-    # Pula se ficou vazio
     [ -z "$s" ] && continue
 
-    # Valida que tem pelo menos 1 ponto OU asterisco (domínio válido)
     if echo "$s" | grep -qE '\.|\*'; then
         LISTA+=("$s")
         log "aceito: $s"
@@ -73,7 +58,6 @@ for s in "${LISTA_RAW[@]}"; do
     fi
 done
 
-# Se nada passou, usa fallback
 if [ ${#LISTA[@]} -eq 0 ]; then
     LISTA=("jude.dcc.ufba.br" "*.dcc.ufba.br")
     log "lista vazia, usando fallback"
@@ -90,11 +74,9 @@ adicionar_excecao() { EXCECOES="$EXCECOES\"$1\","; }
 
 for s in "${LISTA[@]}"; do
     if echo "$s" | grep -q '\*'; then
-        # Wildcard: só adiciona com /*
         adicionar_excecao "https://$s/*"
         adicionar_excecao "http://$s/*"
     else
-        # Domínio normal: adiciona todas as variações
         adicionar_excecao "https://$s"
         adicionar_excecao "http://$s"
         adicionar_excecao "https://$s/*"
@@ -242,14 +224,25 @@ blacklist usb-storage
 EOF
 chmod 644 "$USB_CONF"
 
-# NÃO roda update-initramfs (evita timeout SSH)
-# O módulo já está carregado, então só descarrega se possível
 if lsmod | grep -q '^usb_storage'; then
     modprobe -r usb-storage 2>/dev/null || true
 fi
 
 log "USB bloqueado"
 echo "✅ USB bloqueado"
+
+# =========================================================
+# Bloqueia TERMINAL (novo)
+# =========================================================
+if [ -x /usr/local/sbin/lab-block-terminal.sh ]; then
+    log "bloqueando terminal"
+    /usr/local/sbin/lab-block-terminal.sh >> "$LOG" 2>&1 || \
+        log "AVISO: falha ao bloquear terminal"
+    echo "✅ Terminal bloqueado"
+else
+    log "AVISO: lab-block-terminal.sh não encontrado"
+    echo "⚠️  Terminal NÃO bloqueado (script ausente)"
+fi
 
 # =========================================================
 # Mata navegadores para forçar releitura das políticas
@@ -261,14 +254,12 @@ BROWSERS=(
     falkon epiphany midori qutebrowser surf
 )
 
-# TERM educado
 for b in "${BROWSERS[@]}"; do
     pkill -TERM -x "$b" 2>/dev/null || true
 done
 
 sleep 1
 
-# KILL garantido
 for b in "${BROWSERS[@]}"; do
     pkill -KILL -x "$b" 2>/dev/null || true
 done
