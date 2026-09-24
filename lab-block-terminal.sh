@@ -146,7 +146,7 @@ for pid in $(pgrep -u aluno 2>/dev/null); do
             PRESERVADOS=$((PRESERVADOS + 1))
             continue
             ;;
-        # ⭐ SSH (NÃO MATA — senão o C# perde a conexão)
+        
             sshd|sshd-session|systemd-user|systemd|systemd-logind|login|sudo)
             PRESERVADOS=$((PRESERVADOS + 1))
             continue
