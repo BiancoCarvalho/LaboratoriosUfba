@@ -1,93 +1,110 @@
 #!/bin/bash
 # =====================================================================
 #  lab-admin-profile-config.sh
-#  v3.0.0
+#  v3.1.0
 #
-#  Cria/configura o usuario administrador 'NATI'.
-#  - Cria o usuario se NAO existir
-#  - Se existir, reconfigura (senha, chave, sudoers) SEM derrubar sessao
+#  Cria/configura o usuário administrador 'nati'.
+#  - Cria o usuário se NÃO existir
+#  - Se existir, reconfigura (senha, chave, sudoers) SEM derrubar sessão
 #  - Sem 'sudo' (roda como root via systemd)
-#  - Sempre reaplica chave SSH, sudoers e permissoes
-#  - Remove o usuario 'suporte' se existir
+#  - Sempre reaplica chave SSH, sudoers e permissões
+#  - Remove o usuário 'suporte' se existir
 #
-#  Localizacao: /usr/local/sbin/lab-admin-profile-config.sh
+#  CORREÇÕES v3.1.0:
+#    - Sudoers agora usa 'nati' (minúsculo, igual ao usuário)
+#    - Teste de sudoers usa o binário correto
+#    - Validação robusta de cada etapa
+#
+#  Localização: /usr/local/sbin/lab-admin-profile-config.sh
 # =====================================================================
+
+set -u
 
 export DEBIAN_FRONTEND=noninteractive
 
 USUARIO="nati"
-SENHA="@PNZ!2026"
+SENHA='@PNZ!2026'
 LOG="/var/log/lab.log"
 
-# Chave publica do servidor C# (mesma do antigo labadmin.pub)
 CHAVE_PUBLICA="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMohJ7/PEW4OlfVwLcI0pZMmK0nsy05PLfYPiPCGSl6c servidor-lab@universidade"
 
-echo "[$(date '+%F %T')] host=$(hostname) ADMIN-PROFILE-CONFIG" >> "$LOG"
+log() {
+    echo "[$(date '+%F %T')] host=$(hostname) ADMIN-PROFILE: $*" >> "$LOG"
+}
+
+log "iniciado"
 
 # ---------------------------------------------------------------------
-# 1) Cria o usuario SO SE NAO EXISTIR
+# 1) Cria o usuário SOMENTE se não existir
 # ---------------------------------------------------------------------
 if id "$USUARIO" &>/dev/null; then
-    echo "[$(date '+%F %T')] usuario $USUARIO ja existe - pulando recriacao" >> "$LOG"
+    log "usuário $USUARIO já existe - pulando recriação"
 else
-    echo "[$(date '+%F %T')] criando usuario $USUARIO..." >> "$LOG"
+    log "criando usuário $USUARIO..."
 
-    useradd --create-home --shell /bin/bash "$USUARIO"
-    echo "$USUARIO:$SENHA" | chpasswd
-    usermod -aG sudo "$USUARIO"
+    if ! useradd --create-home --shell /bin/bash "$USUARIO"; then
+        log "ERRO: falha ao criar usuário $USUARIO"
+        exit 1
+    fi
 
-    echo "[$(date '+%F %T')] usuario $USUARIO criado" >> "$LOG"
+    log "usuário $USUARIO criado"
 fi
 
-# Garante que a senha esta correta (mesmo se o usuario ja existia)
-echo "$USUARIO:$SENHA" | chpasswd
+# Garante senha correta (mesmo se já existia)
+if ! echo "$USUARIO:$SENHA" | chpasswd; then
+    log "ERRO: falha ao definir senha de $USUARIO"
+    exit 1
+fi
 
-# Garante que esta no grupo sudo
+# Garante grupo sudo
 usermod -aG sudo "$USUARIO" 2>/dev/null || true
 
 # ---------------------------------------------------------------------
-# 2) Chave publica SSH
+# 2) Chave pública SSH
 # ---------------------------------------------------------------------
-mkdir -p /home/$USUARIO/.ssh
-chmod 700 /home/$USUARIO/.ssh
-chown $USUARIO:$USUARIO /home/$USUARIO/.ssh
+mkdir -p "/home/$USUARIO/.ssh"
+chmod 700 "/home/$USUARIO/.ssh"
+chown "$USUARIO:$USUARIO" "/home/$USUARIO/.ssh"
 
-echo "$CHAVE_PUBLICA" > /home/$USUARIO/.ssh/authorized_keys
-chmod 600 /home/$USUARIO/.ssh/authorized_keys
-chown $USUARIO:$USUARIO /home/$USUARIO/.ssh/authorized_keys
+echo "$CHAVE_PUBLICA" > "/home/$USUARIO/.ssh/authorized_keys"
+chmod 600 "/home/$USUARIO/.ssh/authorized_keys"
+chown "$USUARIO:$USUARIO" "/home/$USUARIO/.ssh/authorized_keys"
 
-# Home acessivel
-chmod 755 /home/$USUARIO
-chown $USUARIO:$USUARIO /home/$USUARIO
+# Home acessível
+chmod 755 "/home/$USUARIO"
+chown "$USUARIO:$USUARIO" "/home/$USUARIO"
 
 # Garante SSH rodando
 systemctl enable ssh >/dev/null 2>&1 || true
 systemctl start ssh  >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------------
-# 3) Sudoers restrito (via /etc/sudoers.d - NAO edita /etc/sudoers)
+# 3) Sudoers restrito
+#    ⭐ CORREÇÃO: usa o nome EXATO do usuário (nati, não NATI)
 # ---------------------------------------------------------------------
-rm -f /etc/sudoers.d/NATI
+SUDOERS_FILE="/etc/sudoers.d/nati-admin"
+rm -f /etc/sudoers.d/NATI /etc/sudoers.d/nati-admin
 
-cat > /etc/sudoers.d/NATI <<'EOF'
-# NATI - administrador do laboratorio
-NATI ALL=(ALL) NOPASSWD: /usr/bin/apt, /usr/bin/apt-get, /usr/bin/dpkg
-NATI ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block.sh
-NATI ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block-sites.sh
-NATI ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-unblock.sh
+cat > "$SUDOERS_FILE" <<EOF
+# nati - administrador do laboratório
+$USUARIO ALL=(ALL) NOPASSWD: /usr/bin/apt, /usr/bin/apt-get, /usr/bin/dpkg
+$USUARIO ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block.sh
+$USUARIO ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-block-sites.sh
+$USUARIO ALL=(ALL) NOPASSWD: /usr/local/sbin/lab-unblock.sh
 EOF
 
-chmod 440 /etc/sudoers.d/NATI
-chown root:root /etc/sudoers.d/NATI
+chmod 440 "$SUDOERS_FILE"
+chown root:root "$SUDOERS_FILE"
 
-if ! visudo -cf /etc/sudoers.d/NATI >/dev/null 2>&1; then
-    echo "[$(date '+%F %T')] [AVISO] sudoers NATI invalido - fallback" >> "$LOG"
+# ⭐ Valida o arquivo específico
+if ! visudo -cf "$SUDOERS_FILE" >/dev/null 2>&1; then
+    log "AVISO: sudoers $SUDOERS_FILE inválido - aplicando fallback"
 
-    cat > /etc/sudoers.d/NATI <<'EOF'
-NATI ALL=(ALL) NOPASSWD: ALL
+    cat > "$SUDOERS_FILE" <<EOF
+$USUARIO ALL=(ALL) NOPASSWD: ALL
 EOF
-    chmod 440 /etc/sudoers.d/NATI
-    chown root:root /etc/sudoers.d/NATI
+    chmod 440 "$SUDOERS_FILE"
+    chown root:root "$SUDOERS_FILE"
 fi
 
 # ---------------------------------------------------------------------
@@ -96,17 +113,18 @@ fi
 if id "suporte" &>/dev/null; then
     pkill -9 -u "suporte" 2>/dev/null || true
     userdel -r "suporte" 2>/dev/null || true
-    echo "[$(date '+%F %T')] usuario suporte removido" >> "$LOG"
+    log "usuário suporte removido"
 fi
 
 # ---------------------------------------------------------------------
 # 5) Teste final
+#    ⭐ CORREÇÃO: usa `sudo -n -l -U` (lista permissões, não executa)
 # ---------------------------------------------------------------------
-if sudo -n -u "$USUARIO" true 2>/dev/null; then
-    echo "[$(date '+%F %T')] [OK] sudoers $USUARIO OK" >> "$LOG"
+if sudo -n -l -U "$USUARIO" >/dev/null 2>&1; then
+    log "[OK] sudoers $USUARIO OK"
 else
-    echo "[$(date '+%F %T')] [AVISO] sudoers $USUARIO NAO funciona" >> "$LOG"
+    log "[AVISO] sudoers $USUARIO NÃO funciona"
 fi
 
-echo "[$(date '+%F %T')] ADMIN-PROFILE-CONFIG concluido" >> "$LOG"
+log "concluído"
 exit 0
