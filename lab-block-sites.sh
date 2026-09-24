@@ -1,35 +1,48 @@
 #!/bin/bash
 # =====================================================================
 #  lab-block-sites.sh
-#  v1.0.0
+#  v1.1.0
 #
-#  Bloqueia uma lista de sites recebida como argumento.
+#  Bloqueia uma lista ADICIONAL de sites (somado ao lab-block.sh).
 #  Uso: sudo /usr/local/sbin/lab-block-sites.sh "youtube.com,instagram.com"
 #
-#  Localização: /usr/local/sbin/lab-block-sites.sh
+#  CORREÇÕES v1.1.0:
+#    - Valida argumento
+#    - Kill de browsers com verificação
+#    - Log estruturado
 # =====================================================================
 
-SITES="$1"
+set -u
+
+SITES="${1:-}"
 LOG="/var/log/lab.log"
 
+log() {
+    echo "[$(date '+%F %T')] host=$(hostname) BLOCK-SITES: $*" >> "$LOG"
+}
+
 if [ -z "$SITES" ]; then
-    echo "[$(date '+%F %T')] lab-block-sites: nenhum site informado" >> "$LOG"
+    log "ERRO: nenhum site informado"
     exit 1
 fi
 
-echo "[$(date '+%F %T')] host=$(hostname) BLOCK-SITES: $SITES" >> "$LOG"
+log "iniciado (sites: $SITES)"
 
-# Converte "a.com,b.com" em array
 IFS=',' read -ra LISTA <<< "$SITES"
 
-# Monta JSON do Firefox
+# Monta JSON
 BLOCK_JSON=""
 for s in "${LISTA[@]}"; do
-    s=$(echo "$s" | xargs)   # trim
+    s=$(echo "$s" | xargs)
     [ -z "$s" ] && continue
     BLOCK_JSON="$BLOCK_JSON\"*://*.$s/*\",\"*://$s/*\","
 done
 BLOCK_JSON="${BLOCK_JSON%,}"
+
+if [ -z "$BLOCK_JSON" ]; then
+    log "ERRO: lista vazia após sanitização"
+    exit 1
+fi
 
 FIREFOX_POLICIES=$(cat <<EOF
 {
@@ -91,22 +104,18 @@ if [ -d /usr/lib/chromium ] || command -v chromium &>/dev/null; then
     chmod 644 /etc/opt/chromium/policies/managed/policies.json
 fi
 
-# Mata navegadores para forçar releitura
-USUARIOS_HUMANOS=$(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd)
+# Mata navegadores
+BROWSERS=(firefox firefox-esr chrome google-chrome chromium chromium-browser)
 
-for u in $USUARIOS_HUMANOS; do
-    sudo -u "$u" pkill -TERM firefox   2>/dev/null
-    sudo -u "$u" pkill -TERM chrome    2>/dev/null
-    sudo -u "$u" pkill -TERM chromium  2>/dev/null
+for b in "${BROWSERS[@]}"; do
+    pkill -TERM -x "$b" 2>/dev/null || true
 done
 
 sleep 2
 
-for u in $USUARIOS_HUMANOS; do
-    sudo -u "$u" pkill -KILL firefox   2>/dev/null
-    sudo -u "$u" pkill -KILL chrome    2>/dev/null
-    sudo -u "$u" pkill -KILL chromium  2>/dev/null
+for b in "${BROWSERS[@]}"; do
+    pkill -KILL -x "$b" 2>/dev/null || true
 done
 
-echo "[$(date '+%F %T')] BLOCK-SITES concluído" >> "$LOG"
+log "concluído"
 exit 0
