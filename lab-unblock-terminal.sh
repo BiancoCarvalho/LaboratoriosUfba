@@ -1,18 +1,16 @@
 #!/bin/bash
 # =====================================================================
 #  lab-unblock-terminal.sh
-#  v1.1.0
+#  v1.2.0
 #
 #  Restaura o terminal para o usuário 'aluno'.
 #
-#  O que faz:
-#    1. Restaura permissões dos binários dos terminais
-#    2. Remove arquivos de atalhos do GNOME
-#    3. Remove bloqueio de TTY
-#    4. Restaura .desktop (do backup)
-#    5. Remove 'nati' e 'root' do grupo terminal-users
-#    6. Remove o grupo terminal-users (se vazio)
-#    7. Força gnome-shell a recarregar os atalhos
+#  CORREÇÕES v1.2.0:
+#    - NÃO mata o gnome-shell do aluno (causava tela preta)
+#    - NÃO reinicia systemd-logind (derrubava sessão gráfica)
+#    - NÃO remove /etc/systemd/logind.conf.d (pasta padrão)
+#    - Restaura APENAS os .desktop de terminais
+#    - Não mexe em sessões ativas
 #
 #  Localização: /usr/local/sbin/lab-unblock-terminal.sh
 # =====================================================================
@@ -29,7 +27,7 @@ log() {
 log "iniciado"
 
 # =========================================================
-# 1. Restaura permissões dos binários
+# 1. Restaura permissões dos binários de terminal
 # =========================================================
 TERMINAIS=(
     gnome-terminal xterm konsole tilix alacritty kitty
@@ -41,7 +39,6 @@ RESTAURADOS=0
 for term in "${TERMINAIS[@]}"; do
     BIN="/usr/bin/$term"
     if [ -f "$BIN" ]; then
-        # Restaura dono e permissão original
         chown root:root "$BIN" 2>/dev/null || true
         chmod 755 "$BIN" 2>/dev/null || true
         RESTAURADOS=$((RESTAURADOS + 1))
@@ -59,32 +56,34 @@ command -v dconf &>/dev/null && dconf update 2>/dev/null || true
 log "atalhos restaurados"
 
 # =========================================================
-# 3. Remove bloqueio de TTY
+# 3. Remove bloqueio de TTY (SEM reiniciar logind)
 # =========================================================
+# ⭐ NÃO reinicia systemd-logind (derrubava a sessão gráfica)
+# ⭐ NÃO remove /etc/systemd/logind.conf.d (pasta padrão do systemd)
 rm -f /etc/systemd/logind.conf.d/lab-block-tty.conf
-
-# Remove a pasta se ficou vazia
-if [ -d /etc/systemd/logind.conf.d ]; then
-    rmdir /etc/systemd/logind.conf.d 2>/dev/null || true
-fi
-
-systemctl restart systemd-logind 2>/dev/null || true
-log "TTY restaurado"
+log "TTY restaurado (aplicará no próximo boot)"
 
 # =========================================================
-# 4. Restaura .desktop (do backup)
+# 4. Restaura APENAS .desktop de terminais
 # =========================================================
-for desktop in /usr/share/applications/*.desktop; do
+# ⭐ NÃO mexe em TODOS os .desktop (isso quebrava o GNOME)
+for desktop in \
+    /usr/share/applications/org.gnome.Terminal.desktop \
+    /usr/share/applications/gnome-terminal.desktop \
+    /usr/share/applications/xterm.desktop \
+    /usr/share/applications/konsole.desktop \
+    /usr/share/applications/tilix.desktop \
+    /usr/share/applications/alacritty.desktop \
+    /usr/share/applications/kitty.desktop
+do
     if [ -f "$desktop.bak" ]; then
-        # Backup existe → restaura
         mv "$desktop.bak" "$desktop" 2>/dev/null || true
         log "menu restaurado: $desktop"
-    else
-        # Sem backup → só remove a linha NoDisplay que adicionamos
-        sed -i '/^NoDisplay=true$/d' "$desktop" 2>/dev/null || true
     fi
+    # Só remove NoDisplay do terminal
+    [ -f "$desktop" ] && sed -i '/^NoDisplay=true$/d' "$desktop" 2>/dev/null || true
 done
-log "menus restaurados"
+log "menus de terminal restaurados"
 
 # =========================================================
 # 5. Remove 'nati' e 'root' do grupo terminal-users
@@ -100,35 +99,27 @@ log "nati e root removidos do grupo $GRUPO"
 # 6. Remove o grupo terminal-users (se vazio)
 # =========================================================
 if getent group "$GRUPO" >/dev/null 2>&1; then
-    # Verifica se o grupo está vazio (sem usuários)
     MEMBROS=$(getent group "$GRUPO" | cut -d: -f4)
     if [ -z "$MEMBROS" ]; then
         groupdel "$GRUPO" 2>/dev/null || true
         log "grupo $GRUPO removido"
-    else
-        log "grupo $GRUPO ainda tem membros: $MEMBROS"
     fi
 fi
 
 # =========================================================
-# 7. Recarrega gnome-shell (se o aluno estiver logado)
+# 7. ⭐ NÃO mata gnome-shell do aluno
 # =========================================================
-# Isso faz o GNOME Shell reler as configurações
-# (atalhos voltam ao normal sem precisar relogar)
-if pgrep -u aluno gnome-shell >/dev/null 2>&1; then
-    # Pede ao gnome-shell para recarregar (SIGTERM → ele se recupera)
-    pkill -TERM -u aluno -x gnome-shell 2>/dev/null || true
-    log "gnome-shell do aluno recarregado"
-fi
+# O GNOME Shell recarrega os atalhos sozinho no próximo login.
+# Matar o gnome-shell derrubava a sessão gráfica.
+#
+# if pgrep -u aluno gnome-shell >/dev/null 2>&1; then
+#     pkill -TERM -u aluno -x gnome-shell 2>/dev/null || true
+# fi
 
-# =========================================================
-# Finalização
-# =========================================================
 log "concluído — $RESTAURADOS terminais restaurados"
 echo "✅ Terminal restaurado ($RESTAURADOS binários)"
 echo "   - Permissões: OK"
-echo "   - Atalhos: OK"
-echo "   - TTY: OK"
+echo "   - Atalhos: OK (aplicam no próximo login)"
+echo "   - TTY: OK (aplica no próximo boot)"
 echo "   - Menu: OK"
-echo "   - Grupo: removido (se vazio)"
 exit 0
