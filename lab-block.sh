@@ -226,31 +226,20 @@ fi
 # =========================================================
 # Mata navegadores (força releitura das políticas)
 # =========================================================
-USUARIOS_HUMANOS=$(awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' /etc/passwd)
-
 BROWSERS=(firefox firefox-esr chrome google-chrome chromium chromium-browser falkon epiphany midori qutebrowser surf)
 
-for u in $USUARIOS_HUMANOS; do
-    for b in "${BROWSERS[@]}"; do
-        sudo -u "$u" pkill -TERM -x "$b" 2>/dev/null
-    done
-done
-
+# SIGTERM global (pkill -x já pega todos os usuários)
 for b in "${BROWSERS[@]}"; do
-    pkill -TERM -x "$b" 2>/dev/null
+    pkill -TERM -x "$b" 2>/dev/null || true
 done
 
-sleep 3
+sleep 1
 
-for u in $USUARIOS_HUMANOS; do
-    for b in "${BROWSERS[@]}"; do
-        sudo -u "$u" pkill -KILL -x "$b" 2>/dev/null
-    done
-done
-
+# SIGKILL global
 for b in "${BROWSERS[@]}"; do
-    pkill -KILL -x "$b" 2>/dev/null
+    pkill -KILL -x "$b" 2>/dev/null || true
 done
+
 
 echo "[$(date '+%F %T')] BLOCK concluído — liberados: ${LISTA[*]}" >> "$LOG"
 exit 0
