@@ -601,14 +601,25 @@ fi
 # =====================================================================
 # 34) Google Chrome
 # =====================================================================
-if ! command -v google-chrome &>/dev/null; then
-    echo "→ Instalando Google Chrome..."
-    wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb
-    dpkg -i /tmp/chrome.deb || apt-get -f install -y
-    rm /tmp/chrome.deb
-    check_install google-chrome
+#if ! command -v google-chrome &>/dev/null; then
+#    echo "→ Instalando Google Chrome..."
+#    wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb
+#    dpkg -i /tmp/chrome.deb || apt-get -f install -y
+#    rm /tmp/chrome.deb
+#    check_install google-chrome
+#else
+#    echo "✅ Google Chrome já instalado. Pulando."
+#fi
+
+if command -v google-chrome &>/dev/null; then
+    echo "→ Desinstalando Google Chrome..."
+    apt-get remove --purge -y google-chrome-stable
+    apt-get autoremove -y
+    rm -rf /opt/google/chrome
+    rm -f /etc/apt/sources.list.d/google-chrome.list
+    echo "✅ Google Chrome desinstalado."
 else
-    echo "✅ Google Chrome já instalado. Pulando."
+    echo "ℹ️ Google Chrome não está instalado. Pulando."
 fi
 
 # =====================================================================
